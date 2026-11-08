@@ -2,7 +2,12 @@
 
 Undo the AI. Keep my edits.
 
-Agent Rewind previews how to reverse a coding agent's changes while preserving later human edits to the same file.
+You asked a coding agent to change a file, then added a change of your own. Agent Rewind compares the Git history with your working copy and previews which agent edits it can reverse while keeping yours.
+
+| Demo file | What changed | What Rewind proposes |
+| --- | --- | --- |
+| `config.py` | The agent enabled caching. You later added `LOG_LEVEL = "debug"`. | Restore `CACHE_ENABLED = False` and keep your logging setting. |
+| `worker.py` | The agent changed retries from `3` to `5`. You then changed the same line to `8`. | Flag the overlap for review and show all three versions. |
 
 ## Try the browser demo
 
@@ -13,7 +18,7 @@ python demo.py
 Invoke-Item .\rewind-demo.html
 ```
 
-The script builds a temporary Git history and saves a standalone report. In `config.py`, Rewind reverses the agent's cache change and preserves the human's logging setting. In `worker.py`, both changed the retry limit, so the report opens a conflict preview. Use `--output another-demo.html` to generate a second report at a new path.
+The script builds a temporary Git history and saves a standalone report with **one clean rewind and one conflict**. Expand `config.py` to see the proposed diff. The `worker.py` conflict opens by default. Use `--output another-demo.html` to generate a second report at a new path.
 
 ## Run the terminal demo
 
@@ -42,8 +47,6 @@ python rewind.py --before before.py --after after.py --current current.py --outp
 Choose a new output path. If the path already exists, the command reports an error. If the merge has conflicts, the command prints the conflict preview and leaves the output path untouched.
 
 The prototype uses three versions of a text file: before the agent's edit, after the agent's edit, and the current version. It uses Git's three-way merge to apply the inverse change to the current version. The result is a preview.
-
-A future evaluation will compare full restore, skipping edited files, and selective reversal. It will measure agent changes removed, human edits preserved, and conflicts requiring review.
 
 ## Read the earlier versions from Git
 
@@ -90,6 +93,10 @@ Run the six-case evaluation with:
 python benchmark.py
 ```
 
-It compares a full restore, skipping files edited after the agent, and selective reversal using Git's three-way merge. Five fixtures have an exact expected result. The overlapping edit fixture expects a conflict preview for human review. The table separates exact results, wrong results, detected conflicts, and unnecessary review.
+| Strategy | Exact matches on five clean cases | Flagged the overlapping edit |
+| --- | ---: | --- |
+| Full restore | 1/5 | No |
+| Skip files edited later | 1/5 | No |
+| Selective reversal using Git's three-way merge | 5/5 | Yes |
 
 These hand-written fixtures illustrate the tradeoffs in a single text file. They are the starting point for a broader evaluation across real change histories.
