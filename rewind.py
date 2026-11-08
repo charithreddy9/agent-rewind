@@ -76,22 +76,54 @@ def run_demo() -> None:
         print_preview(workspace, preview_rewind(before, after, workspace), "config.py")
 
 
+def read_git_versions(path: Path, before_ref: str, after_ref: str, current: str) -> tuple[str, str]:
+    def git(*args: str) -> bytes:
+        result = subprocess.run(["git", "-C", str(path.parent), *args], capture_output=True)
+        if result.returncode:
+            raise RuntimeError(result.stderr.decode("utf-8", errors="replace").strip())
+        return result.stdout
+
+    prefix = git("rev-parse", "--show-prefix").decode("utf-8").removesuffix("\n").removesuffix("\r")
+    versions = []
+    for ref in (before_ref, after_ref):
+        commit = git("rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").decode("ascii").strip()
+        versions.append(git("cat-file", "blob", f"{commit}:{prefix}{path.name}").decode("utf-8"))
+
+    # Git may store LF while a Windows checkout uses CRLF.
+    if "\r\n" in current and "\n" not in current.replace("\r\n", ""):
+        versions = [text.replace("\r\n", "\n").replace("\n", "\r\n") for text in versions]
+    return versions[0], versions[1]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--before", type=Path, help="UTF-8 file before the agent edit")
     parser.add_argument("--after", type=Path, help="UTF-8 file immediately after the agent edit")
+    parser.add_argument("--before-ref", help="Git commit before the agent edit")
+    parser.add_argument("--after-ref", help="Git commit immediately after the agent edit")
     parser.add_argument("--current", type=Path, help="Current UTF-8 file including later edits")
     parser.add_argument("--output", type=Path, help="Save a clean result to a new file")
     args = parser.parse_args()
-    paths = (args.before, args.after, args.current)
-    if not any(paths) and args.output is None:
+    file_mode = args.before is not None or args.after is not None
+    git_mode = args.before_ref is not None or args.after_ref is not None
+    if not (file_mode or git_mode or args.current is not None or args.output is not None):
         run_demo()
         return 0
-    if not all(paths):
-        parser.error("--before, --after, and --current must be supplied together in file mode")
+    if file_mode and git_mode:
+        parser.error("choose file paths or Git refs for before and after")
+    if args.current is None:
+        parser.error("--current is required")
+    if git_mode and not (args.before_ref and args.after_ref):
+        parser.error("--before-ref and --after-ref must be supplied together")
+    if not git_mode and not (args.before and args.after):
+        parser.error("--before and --after must be supplied together in file mode")
 
     try:
-        before, after, current = (path.read_bytes().decode("utf-8") for path in paths)
+        current = args.current.read_bytes().decode("utf-8")
+        if git_mode:
+            before, after = read_git_versions(args.current, args.before_ref, args.after_ref, current)
+        else:
+            before, after = (path.read_bytes().decode("utf-8") for path in (args.before, args.after))
         preview = preview_rewind(before, after, current)
     except (OSError, UnicodeError, RuntimeError) as exc:
         parser.error(str(exc))

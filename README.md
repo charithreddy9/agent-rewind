@@ -36,6 +36,16 @@ The prototype uses three versions of a text file: before the agent's edit, after
 
 A future evaluation will compare full restore, skipping edited files, and selective reversal. It will measure agent changes removed, human edits preserved, and conflicts requiring review.
 
+## Read the earlier versions from Git
+
+If the agent's edit is your latest commit, run this from your checkout:
+
+```powershell
+python rewind.py --before-ref HEAD~1 --after-ref HEAD --current config.py
+```
+
+For an older edit, use the two commit IDs that bracket the agent's changes. The current file can include uncommitted edits. Git mode reads the same repository-relative path from both commits, so use a text file that exists at that path in both versions. Add `--output rewound.py` to save a clean result.
+
 ## Compare rewind strategies
 
 Run the six-case evaluation with:
