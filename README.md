@@ -64,6 +64,15 @@ python rewind.py --before-ref HEAD~1 --after-ref HEAD --all --json
 
 The report includes a schema version, resolved commit IDs, summary counts, and one entry per path. Entries contain a diff for clean rewinds, a conflict preview for overlaps, or a reason for skips. The same exit codes apply.
 
+For a browser review, save a standalone HTML report and open it locally:
+
+```powershell
+python -X utf8 rewind.py --before-ref HEAD~1 --after-ref HEAD --all --html | Out-File -Encoding utf8 rewind-report.html
+Invoke-Item .\rewind-report.html
+```
+
+The report opens conflicts by default and lets you expand clean diffs and skip reasons. It contains file contents from the preview, so review it before sharing.
+
 ## Compare rewind strategies
 
 Run the six-case evaluation with:

@@ -3,6 +3,7 @@
 import argparse
 from dataclasses import dataclass
 from difflib import unified_diff
+from html import escape
 import json
 import os
 from pathlib import Path
@@ -111,7 +112,68 @@ def read_git_versions(path: Path, before_ref: str, after_ref: str, current: str)
     return versions[0], versions[1]
 
 
-def preview_repository(directory: Path, before_ref: str, after_ref: str, json_output: bool = False) -> int:
+def render_html(report: dict) -> str:
+    labels = {"clean": "Clean rewind", "unchanged": "Unchanged",
+              "conflict": "Needs review", "skipped": "Skipped"}
+    counts = "".join(
+        f'<div class="card"><strong>{count}</strong><span>{labels[status]}</span></div>'
+        for status, count in report["summary"].items()
+    )
+    files = []
+    for record in report["files"]:
+        status = record["status"]
+        label = labels[status]
+        path = escape(record["path"])
+        content = record.get("diff") or record.get("conflict_preview") or record.get("reason")
+        title = f'<span class="badge {status}">{label}</span> <code>{path}</code>'
+        if content is None:
+            files.append(f'<div class="file">{title}</div>')
+        else:
+            expanded = " open" if status == "conflict" else ""
+            files.append(f'<details{expanded}><summary>{title}</summary><pre>{escape(content)}</pre></details>')
+
+    before = escape(report["before_commit"])
+    after = escape(report["after_commit"])
+    entries = "".join(files) or "<p>No files changed between these commits.</p>"
+    return f"""<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Rewind | Batch preview</title>
+<style>
+  :root {{ color-scheme: dark; font-family: system-ui, sans-serif; }}
+  body {{ margin: 0; background: #0e1420; color: #e9eef8; }}
+  main {{ width: min(66rem, calc(100% - 2rem)); margin: 3rem auto; }}
+  h1 {{ font-size: clamp(2rem, 5vw, 3rem); margin: .4rem 0; }}
+  p {{ color: #abb9d0; }}
+  .refs {{ overflow-wrap: anywhere; }}
+  .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+            gap: .75rem; margin: 2rem 0; }}
+  .card, details, .file {{ background: #182234; border: 1px solid #33435a;
+                         border-radius: .6rem; padding: .9rem 1rem; }}
+  .card strong {{ display: block; font-size: 1.7rem; }}
+  .card span {{ color: #b8c4d7; }}
+  details, .file {{ margin: .65rem 0; overflow-wrap: anywhere; }}
+  summary {{ cursor: pointer; }}
+  .badge {{ display: inline-block; border-radius: .3rem; padding: .2rem .5rem;
+            background: #304157; font-size: .8rem; }}
+  .clean {{ background: #184632; }}
+  .conflict {{ background: #6a3625; }}
+  pre {{ overflow: auto; background: #0e1420; padding: 1rem; border-radius: .4rem; }}
+</style>
+<main>
+  <header>
+    <p>AGENT REWIND / BATCH PREVIEW</p>
+    <h1>Review proposed rewinds</h1>
+    <p class="refs">Before <code>{before}</code><br>After <code>{after}</code></p>
+  </header>
+  <section class="cards" aria-label="Summary">{counts}</section>
+  <section aria-label="File previews"><h2>Files</h2>{entries}</section>
+</main>
+</html>"""
+
+
+def preview_repository(directory: Path, before_ref: str, after_ref: str, output_format: str = "text") -> int:
     root = Path(git(directory, "rev-parse", "--show-toplevel").decode("utf-8").rstrip("\r\n")).resolve()
     before = resolve_commit(root, before_ref)
     after = resolve_commit(root, after_ref)
@@ -119,10 +181,11 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str, json_ou
                  "--no-ext-diff", "--ignore-submodules=none", before, after, "--").split(b"\0")
     counts = dict(clean=0, unchanged=0, conflict=0, skipped=0)
     records = []
+    structured = output_format != "text"
     for header, name in zip(fields[0:-1:2], fields[1:-1:2]):
         old_mode, new_mode, old_blob, new_blob, status = header.decode("ascii").split()
         filename = os.fsdecode(name)
-        if not json_output:
+        if not structured:
             print(f"\n{filename!r}")
         path = root / filename
         try:
@@ -144,7 +207,7 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str, json_ou
                 current,
             )
         except (OSError, ValueError, RuntimeError) as exc:
-            if json_output:
+            if structured:
                 records.append(dict(path=filename, status="skipped", reason=str(exc)))
             else:
                 print(f"Skipped: {exc}")
@@ -157,7 +220,7 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str, json_ou
         else:
             outcome = "clean"
         counts[outcome] += 1
-        if json_output:
+        if structured:
             record = dict(path=filename, status=outcome)
             if outcome == "conflict":
                 record["conflict_preview"] = preview.text
@@ -167,9 +230,13 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str, json_ou
         else:
             print_preview(current, preview, repr(filename))
 
-    if json_output:
-        print(json.dumps(dict(schema_version=1, before_commit=before, after_commit=after,
-                              summary=counts, files=records), indent=2))
+    if structured:
+        report = dict(schema_version=1, before_commit=before, after_commit=after,
+                      summary=counts, files=records)
+        if output_format == "html":
+            print(render_html(report))
+        else:
+            print(json.dumps(report, indent=2))
     else:
         print(f"\nSummary: {counts['clean']} clean, {counts['unchanged']} unchanged, "
               f"{counts['conflict']} conflicts, {counts['skipped']} skipped.")
@@ -185,10 +252,15 @@ def main() -> int:
     parser.add_argument("--current", type=Path, help="Current UTF-8 file including later edits")
     parser.add_argument("--output", type=Path, help="Save a clean result to a new file")
     parser.add_argument("--all", action="store_true", help="Preview all supported changes between Git commits")
-    parser.add_argument("--json", action="store_true", help="Print the batch preview as JSON")
+    formats = parser.add_mutually_exclusive_group()
+    formats.add_argument("--json", dest="format", action="store_const", const="json",
+                         help="Print the batch preview as JSON")
+    formats.add_argument("--html", dest="format", action="store_const", const="html",
+                         help="Print a standalone HTML batch report")
+    parser.set_defaults(format="text")
     args = parser.parse_args()
-    if args.json and not args.all:
-        parser.error("--json requires --all")
+    if args.format != "text" and not args.all:
+        parser.error(f"--{args.format} requires --all")
     file_mode = args.before is not None or args.after is not None
     git_mode = args.before_ref is not None or args.after_ref is not None
     if args.all:
@@ -197,7 +269,7 @@ def main() -> int:
         if not (args.before_ref and args.after_ref):
             parser.error("--all requires --before-ref and --after-ref")
         try:
-            return preview_repository(Path.cwd(), args.before_ref, args.after_ref, args.json)
+            return preview_repository(Path.cwd(), args.before_ref, args.after_ref, args.format)
         except (OSError, ValueError, RuntimeError) as exc:
             parser.error(str(exc))
     if not (file_mode or git_mode or args.current is not None or args.output is not None):
