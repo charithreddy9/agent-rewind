@@ -56,6 +56,14 @@ python rewind.py --before-ref HEAD~1 --after-ref HEAD --all
 
 Rewind reads the working copy of each modified UTF-8 text file and prints a diff or conflict preview. It reports additions, deletions, renames (as additions and deletions), mode changes, binary files, and missing working files as skipped. The summary counts clean changes, files already in the desired state, conflicts, and skips. Exit codes are 0 for a complete clean preview, 1 if anything needs review or was skipped, and 2 for setup errors. Batch mode writes no files.
 
+Add `--json` to write a machine-readable batch report to standard output:
+
+```powershell
+python rewind.py --before-ref HEAD~1 --after-ref HEAD --all --json
+```
+
+The report includes a schema version, resolved commit IDs, summary counts, and one entry per path. Entries contain a diff for clean rewinds, a conflict preview for overlaps, or a reason for skips. The same exit codes apply.
+
 ## Compare rewind strategies
 
 Run the six-case evaluation with:

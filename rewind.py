@@ -3,6 +3,7 @@
 import argparse
 from dataclasses import dataclass
 from difflib import unified_diff
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -41,26 +42,30 @@ def preview_rewind(before_agent: str, after_agent: str, current: str) -> Preview
     return Preview(result.stdout.decode("utf-8"), result.returncode != 0)
 
 
-def print_preview(current: str, preview: Preview, filename: str) -> None:
-    if preview.has_conflicts:
-        print("Review required. Conflict preview:\n")
-        print(preview.text, end="")
-        return
-    if current == preview.text:
-        print("No changes to rewind.")
-        return
-    print("Proposed changes:\n")
+def format_diff(current: str, proposed: str, filename: str) -> str:
+    lines = []
     for line in unified_diff(
         current.splitlines(keepends=True),
-        preview.text.splitlines(keepends=True),
+        proposed.splitlines(keepends=True),
         fromfile=f"current/{filename}",
         tofile=f"rewound/{filename}",
     ):
         if line.endswith("\n"):
-            print(line, end="")
+            lines.append(line)
         else:
-            print(line)
-            print("\\ No newline at end of file")
+            lines.append(line + "\n\\ No newline at end of file\n")
+    return "".join(lines)
+
+
+def print_preview(current: str, preview: Preview, filename: str) -> None:
+    if preview.has_conflicts:
+        print("Review required. Conflict preview:\n")
+        print(preview.text, end="")
+    elif current == preview.text:
+        print("No changes to rewind.")
+    else:
+        print("Proposed changes:\n")
+        print(format_diff(current, preview.text, filename), end="")
 
 
 def run_demo() -> None:
@@ -106,23 +111,23 @@ def read_git_versions(path: Path, before_ref: str, after_ref: str, current: str)
     return versions[0], versions[1]
 
 
-def preview_repository(directory: Path, before_ref: str, after_ref: str) -> int:
+def preview_repository(directory: Path, before_ref: str, after_ref: str, json_output: bool = False) -> int:
     root = Path(git(directory, "rev-parse", "--show-toplevel").decode("utf-8").rstrip("\r\n")).resolve()
     before = resolve_commit(root, before_ref)
     after = resolve_commit(root, after_ref)
     fields = git(root, "diff", "--raw", "-z", "--no-abbrev", "--no-renames",
                  "--no-ext-diff", "--ignore-submodules=none", before, after, "--").split(b"\0")
-    clean = unchanged = conflicts = skipped = 0
+    counts = dict(clean=0, unchanged=0, conflict=0, skipped=0)
+    records = []
     for header, name in zip(fields[0:-1:2], fields[1:-1:2]):
         old_mode, new_mode, old_blob, new_blob, status = header.decode("ascii").split()
         filename = os.fsdecode(name)
-        print(f"\n{filename!r}")
-        if status != "M" or old_mode[1:] != new_mode or new_mode not in {"100644", "100755"}:
-            print("Skipped: only content changes to existing regular files are supported.")
-            skipped += 1
-            continue
+        if not json_output:
+            print(f"\n{filename!r}")
         path = root / filename
         try:
+            if status != "M" or old_mode[1:] != new_mode or new_mode not in {"100644", "100755"}:
+                raise ValueError("only content changes to existing regular files are supported.")
             if not path.is_file() or path.resolve() != path:
                 raise ValueError("working file is missing or points through a symlink")
             current, before_text, after_text = (
@@ -139,19 +144,36 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str) -> int:
                 current,
             )
         except (OSError, ValueError, RuntimeError) as exc:
-            print(f"Skipped: {exc}")
-            skipped += 1
+            if json_output:
+                records.append(dict(path=filename, status="skipped", reason=str(exc)))
+            else:
+                print(f"Skipped: {exc}")
+            counts["skipped"] += 1
             continue
-        print_preview(current, preview, repr(filename))
         if preview.has_conflicts:
-            conflicts += 1
+            outcome = "conflict"
         elif preview.text == current:
-            unchanged += 1
+            outcome = "unchanged"
         else:
-            clean += 1
+            outcome = "clean"
+        counts[outcome] += 1
+        if json_output:
+            record = dict(path=filename, status=outcome)
+            if outcome == "conflict":
+                record["conflict_preview"] = preview.text
+            elif outcome == "clean":
+                record["diff"] = format_diff(current, preview.text, repr(filename))
+            records.append(record)
+        else:
+            print_preview(current, preview, repr(filename))
 
-    print(f"\nSummary: {clean} clean, {unchanged} unchanged, {conflicts} conflicts, {skipped} skipped.")
-    return int(bool(conflicts or skipped))
+    if json_output:
+        print(json.dumps(dict(schema_version=1, before_commit=before, after_commit=after,
+                              summary=counts, files=records), indent=2))
+    else:
+        print(f"\nSummary: {counts['clean']} clean, {counts['unchanged']} unchanged, "
+              f"{counts['conflict']} conflicts, {counts['skipped']} skipped.")
+    return int(bool(counts["conflict"] or counts["skipped"]))
 
 
 def main() -> int:
@@ -163,7 +185,10 @@ def main() -> int:
     parser.add_argument("--current", type=Path, help="Current UTF-8 file including later edits")
     parser.add_argument("--output", type=Path, help="Save a clean result to a new file")
     parser.add_argument("--all", action="store_true", help="Preview all supported changes between Git commits")
+    parser.add_argument("--json", action="store_true", help="Print the batch preview as JSON")
     args = parser.parse_args()
+    if args.json and not args.all:
+        parser.error("--json requires --all")
     file_mode = args.before is not None or args.after is not None
     git_mode = args.before_ref is not None or args.after_ref is not None
     if args.all:
@@ -172,7 +197,7 @@ def main() -> int:
         if not (args.before_ref and args.after_ref):
             parser.error("--all requires --before-ref and --after-ref")
         try:
-            return preview_repository(Path.cwd(), args.before_ref, args.after_ref)
+            return preview_repository(Path.cwd(), args.before_ref, args.after_ref, args.json)
         except (OSError, ValueError, RuntimeError) as exc:
             parser.error(str(exc))
     if not (file_mode or git_mode or args.current is not None or args.output is not None):
