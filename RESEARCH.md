@@ -35,3 +35,17 @@ The adjacent-line fixture produces a textual conflict even though its expected a
 [Verified Three-Way Program Merge](https://www.microsoft.com/en-us/research/publication/verified-three-way-program-merge/) studies semantic conflict freedom in program merges. Agent Rewind's checks cover explicitly supplied numeric relations in individual JSON files. [UndoBench](https://github.com/tradertanmay/undobench) studies operational agent recovery, including failures around tool-side effects. This project evaluates text-file recovery and configuration checks.
 
 The two dependency cases were designed around rules supplied to the tool. The result demonstrates those rules firing in a controlled setting. It does not estimate how often unsafe rewinds occur or how well the approach generalizes to real projects. It cannot discover missing rules, check cross-file behavior, or reverse external side effects. The next research step would be an independently labeled corpus of real edit sequences and rules derived from each project's existing tests or documented constraints.
+
+## Replay on the project's Git history
+
+A second evaluation uses four existing commits from this repository: the output flag, JSON reporting, the demo documentation, and a benchmark change. The script pins each full commit ID and reads the file before and after that commit. For each patch, it simulates three later edits: prepend a note, append a note, or edit one line introduced by the selected commit. The expected result for the first two cases is the before snapshot with the same note. The overlapping case requires review.
+
+| Strategy | Exact results out of 8 note cases | Review flags out of 4 overlap cases |
+| --- | ---: | ---: |
+| Full restore | 0/8 | 0/4 |
+| Skip files edited later | 0/8 | 0/4 |
+| Git selective reversal | 8/8 | 4/4 |
+
+Run `python history_benchmark.py` from a full clone. The recorded run used Git 2.51.1 and Python 3.12.14. The replay reads committed file versions and evaluates in memory.
+
+The patches are real. The later edits and expected outcomes are scripted. Three file paths in one project and four commit selections give this replay narrow coverage. The two note positions model easy separable edits, and all overlap cases were selected to touch an agent-introduced line. The replay measures textual rollback only. It does not estimate the frequency of conflicts in developer workflows or evaluate semantic validation on external repositories.

@@ -119,3 +119,5 @@ python -m unittest -v
 | Selective reversal with supplied rules | 8/9 | 3/3 |
 
 The results come from hand-written fixtures, including cases designed around known configuration rules. See the [research note](RESEARCH.md) for the method, related work, full outcome counts, and limitations.
+
+For a replay using four actual commits from this repository and scripted later edits, run `python history_benchmark.py` from a full Git clone. The research note reports those outcomes separately from the hand-written fixtures.
