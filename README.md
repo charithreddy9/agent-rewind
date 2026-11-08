@@ -87,16 +87,18 @@ The report opens conflicts by default and lets you expand clean diffs and skip r
 
 ## Compare rewind strategies
 
-Run the six-case evaluation with:
+Run the eight-case evaluation with:
 
 ```powershell
 python benchmark.py
 ```
 
-| Strategy | Exact matches on five clean cases | Flagged the overlapping edit |
-| --- | ---: | --- |
-| Full restore | 1/5 | No |
-| Skip files edited later | 1/5 | No |
-| Selective reversal using Git's three-way merge | 5/5 | Yes |
+| Strategy | Exact matches on six cases with a known result | Flagged the same-line overlap | Worker-limit dependency |
+| --- | ---: | --- | --- |
+| Full restore | 1/6 | No | Missed review |
+| Skip files edited later | 1/6 | No | Missed review |
+| Selective reversal using Git's three-way merge | 5/6 | Yes | Invalid result |
 
-These hand-written fixtures illustrate the tradeoffs in a single text file. They are the starting point for a broader evaluation across real change histories.
+Git asked for review when two edits touched adjacent lines, even though the fixture has a known result that preserves both intentions. In the worker-limit case, Git merged cleanly but kept the human's minimum of `6` while restoring the agent's earlier maximum of `4`. The benchmark checks the rule `min_workers <= max_workers` and flags the result as invalid. That check belongs to this fixture. The Rewind CLI reports textual conflicts and leaves application-specific validation to the caller.
+
+These eight hand-written fixtures illustrate the tradeoffs in a single text file.
