@@ -81,13 +81,14 @@ def main() -> int:
     parser.add_argument("--before", type=Path, help="UTF-8 file before the agent edit")
     parser.add_argument("--after", type=Path, help="UTF-8 file immediately after the agent edit")
     parser.add_argument("--current", type=Path, help="Current UTF-8 file including later edits")
+    parser.add_argument("--output", type=Path, help="Save a clean result to a new file")
     args = parser.parse_args()
     paths = (args.before, args.after, args.current)
-    if not any(paths):
+    if not any(paths) and args.output is None:
         run_demo()
         return 0
     if not all(paths):
-        parser.error("--before, --after, and --current must be supplied together")
+        parser.error("--before, --after, and --current must be supplied together in file mode")
 
     try:
         before, after, current = (path.read_bytes().decode("utf-8") for path in paths)
@@ -95,6 +96,15 @@ def main() -> int:
     except (OSError, UnicodeError, RuntimeError) as exc:
         parser.error(str(exc))
     print_preview(current, preview, args.current.name)
+    if args.output is not None and not preview.has_conflicts:
+        try:
+            with args.output.open("xb") as output:
+                output.write(preview.text.encode("utf-8"))
+        except FileExistsError:
+            parser.error(f"output already exists: {args.output}")
+        except OSError as exc:
+            parser.error(str(exc))
+        print(f"\nSaved rewind to {args.output}")
     return int(preview.has_conflicts)
 
 
