@@ -35,3 +35,15 @@ Choose a new output path. If the path already exists, the command reports an err
 The prototype uses three versions of a text file: before the agent's edit, after the agent's edit, and the current version. It uses Git's three-way merge to apply the inverse change to the current version. The result is a preview.
 
 A future evaluation will compare full restore, skipping edited files, and selective reversal. It will measure agent changes removed, human edits preserved, and conflicts requiring review.
+
+## Compare rewind strategies
+
+Run the six-case evaluation with:
+
+```powershell
+python benchmark.py
+```
+
+It compares a full restore, skipping files edited after the agent, and selective reversal using Git's three-way merge. Five fixtures have an exact expected result. The overlapping edit fixture expects a conflict preview for human review. The table separates exact results, wrong results, detected conflicts, and unnecessary review.
+
+These hand-written fixtures illustrate the tradeoffs in a single text file. They are the starting point for a broader evaluation across real change histories.
