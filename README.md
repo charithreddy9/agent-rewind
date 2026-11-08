@@ -46,6 +46,16 @@ python rewind.py --before-ref HEAD~1 --after-ref HEAD --current config.py
 
 For an older edit, use the two commit IDs that bracket the agent's changes. The current file can include uncommitted edits. Git mode reads the same repository-relative path from both commits, so use a text file that exists at that path in both versions. Add `--output rewound.py` to save a clean result.
 
+## Preview all files changed between two commits
+
+Run this from inside the Git checkout you want to review:
+
+```powershell
+python rewind.py --before-ref HEAD~1 --after-ref HEAD --all
+```
+
+Rewind reads the working copy of each modified UTF-8 text file and prints a diff or conflict preview. It reports additions, deletions, renames (as additions and deletions), mode changes, binary files, and missing working files as skipped. The summary counts clean changes, files already in the desired state, conflicts, and skips. Exit codes are 0 for a complete clean preview, 1 if anything needs review or was skipped, and 2 for setup errors. Batch mode writes no files.
+
 ## Compare rewind strategies
 
 Run the six-case evaluation with:
