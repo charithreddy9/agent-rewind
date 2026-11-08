@@ -4,9 +4,18 @@ Undo the AI. Keep my edits.
 
 Agent Rewind previews how to reverse a coding agent's changes while preserving later human edits to the same file.
 
-## Run the first demo
+## Try the browser demo
 
 With Python 3.10+ and Git installed, run this from the project directory:
+
+```powershell
+python demo.py
+Invoke-Item .\rewind-demo.html
+```
+
+The script builds a temporary Git history and saves a standalone report. In `config.py`, Rewind reverses the agent's cache change and preserves the human's logging setting. In `worker.py`, both changed the retry limit, so the report opens a conflict preview. Use `--output another-demo.html` to generate a second report at a new path.
+
+## Run the terminal demo
 
 ```powershell
 python rewind.py
