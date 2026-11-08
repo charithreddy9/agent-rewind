@@ -8,6 +8,7 @@ You asked a coding agent to change a file, then added a change of your own. Agen
 | --- | --- | --- |
 | `config.py` | The agent enabled caching. You later added `LOG_LEVEL = "debug"`. | Restore `CACHE_ENABLED = False` and keep your logging setting. |
 | `worker.py` | The agent changed retries from `3` to `5`. You then changed the same line to `8`. | Flag the overlap for review and show all three versions. |
+| `limits.json` | The agent raised the maximum from `4` to `8`. You later raised the minimum to `6`. | Flag the clean textual merge because restoring the maximum to `4` would violate the configured limit. |
 
 ## Try the browser demo
 
@@ -18,7 +19,7 @@ python demo.py
 Invoke-Item .\rewind-demo.html
 ```
 
-The script builds a temporary Git history and saves a standalone report with **one clean rewind and one conflict**. Expand `config.py` to see the proposed diff. The `worker.py` conflict opens by default. Use `--output another-demo.html` to generate a second report at a new path.
+The script builds a temporary Git history and saves a standalone report with **one clean rewind, one textual conflict, and one failed configuration rule**. Expand `config.py` to see the proposed diff. The two entries requiring review open by default. Use `--output another-demo.html` to generate a second report at a new path.
 
 ## Run the terminal demo
 
@@ -85,20 +86,36 @@ Invoke-Item .\rewind-report.html
 
 The report opens conflicts by default and lets you expand clean diffs and skip reasons. It contains file contents from the preview, so review it before sharing.
 
+## Check proposed JSON changes against project rules
+
+Save a UTF-8 file named `rewind-rules.json`. Use repository-relative paths and pairs of top-level JSON keys. Each pair requires a finite numeric lower value less than or equal to the upper value.
+
+```json
+{
+  "config/limits.json": [["min_workers", "max_workers"]]
+}
+```
+
+```powershell
+python rewind.py --before-ref HEAD~1 --after-ref HEAD --all --rules rewind-rules.json --json
+```
+
+Rules run on listed files with proposed text changes after the textual merge succeeds. Missing keys, invalid JSON, and violated comparisons require review. Reports show how many files were checked. A validation failure returns exit code 1 and includes the proposed diff and reasons. This option is for batch previews.
+
 ## Compare rewind strategies
 
-Run the eight-case evaluation with:
+Run the 12-case evaluation and regression tests with:
 
 ```powershell
 python benchmark.py
+python -m unittest -v
 ```
 
-| Strategy | Exact matches on six cases with a known result | Flagged the same-line overlap | Worker-limit dependency |
-| --- | ---: | --- | --- |
-| Full restore | 1/6 | No | Missed review |
-| Skip files edited later | 1/6 | No | Missed review |
-| Selective reversal using Git's three-way merge | 5/6 | Yes | Invalid result |
+| Strategy | Exact matches out of 9 cases with an expected result | Review flags out of 3 cases requiring review |
+| --- | ---: | ---: |
+| Full restore | 1/9 | 0/3 |
+| Skip files edited later | 2/9 | 0/3 |
+| Selective reversal using Git's three-way merge | 8/9 | 1/3 |
+| Selective reversal with supplied rules | 8/9 | 3/3 |
 
-Git asked for review when two edits touched adjacent lines, even though the fixture has a known result that preserves both intentions. In the worker-limit case, Git merged cleanly but kept the human's minimum of `6` while restoring the agent's earlier maximum of `4`. The benchmark checks the rule `min_workers <= max_workers` and flags the result as invalid. That check belongs to this fixture. The Rewind CLI reports textual conflicts and leaves application-specific validation to the caller.
-
-These eight hand-written fixtures illustrate the tradeoffs in a single text file.
+The results come from hand-written fixtures, including cases designed around known configuration rules. See the [research note](RESEARCH.md) for the method, related work, full outcome counts, and limitations.

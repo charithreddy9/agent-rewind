@@ -1,6 +1,7 @@
 """Create a disposable Git history and render the Agent Rewind demo report."""
 
 import argparse
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -25,24 +26,33 @@ def generate_report() -> bytes:
         git("init", "--quiet", "--template=")
         config = repo / "config.py"
         worker = repo / "worker.py"
+        limits = repo / "limits.json"
+        original_limits = b'{\n  "max_workers": 4,\n\n  "min_workers": 2\n}\n'
+        agent_limits = original_limits.replace(b": 4,", b": 8,")
         config.write_bytes(b"CACHE_ENABLED = False\n\nPORT = 8080\n")
         worker.write_bytes(b"MAX_RETRIES = 3\n")
-        git("add", "-f", "--", config.name, worker.name)
+        limits.write_bytes(original_limits)
+        git("add", "-f", "--", config.name, worker.name, limits.name)
         git("commit", "--quiet", "-m", "Before agent edits")
 
         config.write_bytes(b"CACHE_ENABLED = True\n\nPORT = 8080\n")
         worker.write_bytes(b"MAX_RETRIES = 5\n")
-        git("add", "-f", "--", config.name, worker.name)
-        git("commit", "--quiet", "-m", "Agent enables caching and increases retries")
+        limits.write_bytes(agent_limits)
+        git("add", "-f", "--", config.name, worker.name, limits.name)
+        git("commit", "--quiet", "-m", "Agent enables caching and increases limits")
 
         config.write_bytes(b'CACHE_ENABLED = True\n\nPORT = 8080\nLOG_LEVEL = "debug"\n')
         worker.write_bytes(b"MAX_RETRIES = 8\n")
+        limits.write_bytes(agent_limits.replace(b": 2", b": 6"))
+        rules = repo / "rules.json"
+        rules.write_text(json.dumps({limits.name: [["min_workers", "max_workers"]]}),
+                         encoding="utf-8")
         result = subprocess.run(
             [sys.executable, "-X", "utf8", str(script), "--before-ref", "HEAD~1",
-             "--after-ref", "HEAD", "--all", "--html"],
+             "--after-ref", "HEAD", "--all", "--html", "--rules", str(rules)],
             cwd=repo, capture_output=True,
         )
-        # A review-required exit is expected because worker.py has an overlap.
+        # The overlap and failed configuration rule require review.
         if result.returncode != 1 or not result.stdout.startswith(b"<!doctype html>"):
             detail = result.stderr.decode("utf-8", errors="replace").strip()
             raise RuntimeError(detail or f"Unexpected preview exit code: {result.returncode}")

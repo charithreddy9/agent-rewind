@@ -10,6 +10,8 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 
+from validation import Rules, check_json, load_rules
+
 
 @dataclass(frozen=True)
 class Preview:
@@ -114,7 +116,8 @@ def read_git_versions(path: Path, before_ref: str, after_ref: str, current: str)
 
 def render_html(report: dict) -> str:
     labels = {"clean": "Clean rewind", "unchanged": "Unchanged",
-              "conflict": "Needs review", "skipped": "Skipped"}
+              "conflict": "Needs review", "skipped": "Skipped",
+              "validation_failed": "Rule failed"}
     counts = "".join(
         f'<div class="card"><strong>{count}</strong><span>{labels[status]}</span></div>'
         for status, count in report["summary"].items()
@@ -125,11 +128,13 @@ def render_html(report: dict) -> str:
         label = labels[status]
         path = escape(record["path"])
         content = record.get("diff") or record.get("conflict_preview") or record.get("reason")
+        if status == "validation_failed":
+            content = "\n".join(record["issues"]) + "\n\n" + (content or "")
         title = f'<span class="badge {status}">{label}</span> <code>{path}</code>'
         if content is None:
             files.append(f'<div class="file">{title}</div>')
         else:
-            expanded = " open" if status == "conflict" else ""
+            expanded = " open" if status in {"conflict", "validation_failed"} else ""
             files.append(f'<details{expanded}><summary>{title}</summary><pre>{escape(content)}</pre></details>')
 
     before = escape(report["before_commit"])
@@ -158,7 +163,7 @@ def render_html(report: dict) -> str:
   .badge {{ display: inline-block; border-radius: .3rem; padding: .2rem .5rem;
             background: #304157; font-size: .8rem; }}
   .clean {{ background: #184632; }}
-  .conflict {{ background: #6a3625; }}
+  .conflict, .validation_failed {{ background: #6a3625; }}
   pre {{ overflow: auto; background: #0e1420; padding: 1rem; border-radius: .4rem; }}
 </style>
 <main>
@@ -173,13 +178,17 @@ def render_html(report: dict) -> str:
 </html>"""
 
 
-def preview_repository(directory: Path, before_ref: str, after_ref: str, output_format: str = "text") -> int:
+def preview_repository(directory: Path, before_ref: str, after_ref: str,
+                       output_format: str = "text", rules: Rules | None = None) -> int:
     root = Path(git(directory, "rev-parse", "--show-toplevel").decode("utf-8").rstrip("\r\n")).resolve()
     before = resolve_commit(root, before_ref)
     after = resolve_commit(root, after_ref)
     fields = git(root, "diff", "--raw", "-z", "--no-abbrev", "--no-renames",
                  "--no-ext-diff", "--ignore-submodules=none", before, after, "--").split(b"\0")
     counts = dict(clean=0, unchanged=0, conflict=0, skipped=0)
+    if rules is not None:
+        counts["validation_failed"] = 0
+    checked = 0
     records = []
     structured = output_format != "text"
     for header, name in zip(fields[0:-1:2], fields[1:-1:2]):
@@ -213,7 +222,13 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str, output_
                 print(f"Skipped: {exc}")
             counts["skipped"] += 1
             continue
-        if preview.has_conflicts:
+        issues = []
+        if not preview.has_conflicts and preview.text != current and rules and filename in rules:
+            checked += 1
+            issues = check_json(preview.text, rules[filename])
+        if issues:
+            outcome = "validation_failed"
+        elif preview.has_conflicts:
             outcome = "conflict"
         elif preview.text == current:
             outcome = "unchanged"
@@ -224,15 +239,23 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str, output_
             record = dict(path=filename, status=outcome)
             if outcome == "conflict":
                 record["conflict_preview"] = preview.text
-            elif outcome == "clean":
+            elif outcome in {"clean", "validation_failed"}:
                 record["diff"] = format_diff(current, preview.text, repr(filename))
+            if issues:
+                record["issues"] = issues
             records.append(record)
         else:
+            if issues:
+                print("Review required. Validation failed:")
+                for issue in issues:
+                    print(f"- {issue}")
             print_preview(current, preview, repr(filename))
 
     if structured:
         report = dict(schema_version=1, before_commit=before, after_commit=after,
                       summary=counts, files=records)
+        if rules is not None:
+            report["validation"] = {"configured_paths": len(rules), "checked_files": checked}
         if output_format == "html":
             print(render_html(report))
         else:
@@ -240,7 +263,9 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str, output_
     else:
         print(f"\nSummary: {counts['clean']} clean, {counts['unchanged']} unchanged, "
               f"{counts['conflict']} conflicts, {counts['skipped']} skipped.")
-    return int(bool(counts["conflict"] or counts["skipped"]))
+        if rules is not None:
+            print(f"Validation: {checked} files checked, {counts['validation_failed']} failed.")
+    return int(bool(counts["conflict"] or counts["skipped"] or counts.get("validation_failed")))
 
 
 def main() -> int:
@@ -252,6 +277,7 @@ def main() -> int:
     parser.add_argument("--current", type=Path, help="Current UTF-8 file including later edits")
     parser.add_argument("--output", type=Path, help="Save a clean result to a new file")
     parser.add_argument("--all", action="store_true", help="Preview all supported changes between Git commits")
+    parser.add_argument("--rules", type=Path, help="JSON file with batch validation rules")
     formats = parser.add_mutually_exclusive_group()
     formats.add_argument("--json", dest="format", action="store_const", const="json",
                          help="Print the batch preview as JSON")
@@ -261,6 +287,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.format != "text" and not args.all:
         parser.error(f"--{args.format} requires --all")
+    if args.rules is not None and not args.all:
+        parser.error("--rules requires --all")
     file_mode = args.before is not None or args.after is not None
     git_mode = args.before_ref is not None or args.after_ref is not None
     if args.all:
@@ -269,7 +297,8 @@ def main() -> int:
         if not (args.before_ref and args.after_ref):
             parser.error("--all requires --before-ref and --after-ref")
         try:
-            return preview_repository(Path.cwd(), args.before_ref, args.after_ref, args.format)
+            rules = load_rules(args.rules) if args.rules is not None else None
+            return preview_repository(Path.cwd(), args.before_ref, args.after_ref, args.format, rules)
         except (OSError, ValueError, RuntimeError) as exc:
             parser.error(str(exc))
     if not (file_mode or git_mode or args.current is not None or args.output is not None):
