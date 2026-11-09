@@ -10,7 +10,7 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 
-from check_gate import check_rewind
+from check_gate import audit_test_changes, check_rewind
 from validation import Rules, check_json, load_rules
 
 
@@ -117,6 +117,14 @@ def read_git_versions(path: Path, before_ref: str, after_ref: str, current: str)
 
 def format_gate(report: dict) -> str:
     lines = [f"Test gate: {report['status']}"]
+    if report.get("test_changes"):
+        lines.append("Review required. The proposed rewind changes test files:")
+        for change in report["test_changes"]:
+            lines.append(f"- {change['path']}")
+            for definition in change.get("removed_definitions", []):
+                lines.append(f"  Removed Python test definition: {definition}")
+            if "inventory_error" in change:
+                lines.append(f"  {change['inventory_error']}")
     for variant in ("baseline", "candidate"):
         if variant in report:
             run = report[variant]
@@ -283,6 +291,10 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str,
             gate = check_rewind(root, git(root, "ls-files", "-z", "--cached"),
                                 candidates, check_command)
             review_required = gate["status"] != "passed"
+        test_changes = audit_test_changes(candidates)
+        if test_changes:
+            gate["test_changes"] = test_changes
+            review_required = True
 
     if structured:
         report = dict(schema_version=1, before_commit=before, after_commit=after,

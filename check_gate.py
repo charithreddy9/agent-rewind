@@ -1,10 +1,49 @@
 """Run a trusted check against the current files and a proposed rewind."""
 
+import ast
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
+
+
+def test_definitions(text: str) -> set[str]:
+    tree = ast.parse(text)
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+    names = {node.name for node in tree.body
+             if isinstance(node, functions) and node.name.startswith("test")}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            names.update(f"{node.name}.{method.name}" for method in node.body
+                         if isinstance(method, functions) and method.name.startswith("test"))
+    return names
+
+
+def audit_test_changes(candidates: dict[str, tuple[str, str]]) -> list[dict]:
+    changes = []
+    for name, (current, proposed) in sorted(candidates.items()):
+        path = PurePosixPath(name)
+        filename = path.name.lower()
+        in_test_directory = any(part.lower() in {"test", "tests", "testsuite"}
+                                for part in path.parts[:-1])
+        python_test_file = filename.endswith(".py") and (
+            filename.startswith("test_") or filename.endswith("_test.py")
+            or filename in {"test.py", "tests.py", "conftest.py"}
+        )
+        if not (in_test_directory or python_test_file):
+            continue
+        change = {"path": name}
+        if filename.endswith(".py"):
+            try:
+                before = test_definitions(current)
+                after = test_definitions(proposed)
+            except (SyntaxError, ValueError, RecursionError):
+                change["inventory_error"] = "Could not parse Python test definitions."
+            else:
+                change["removed_definitions"] = sorted(before - after)
+        changes.append(change)
+    return changes
 
 
 def run_check(command: list[str], workspace: Path) -> dict:

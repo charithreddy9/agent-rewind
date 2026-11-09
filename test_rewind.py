@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from benchmark import cases, outcome
-from rewind import preview_rewind
+from rewind import preview_rewind, render_html
 from validation import check_json, load_rules
 
 
@@ -136,6 +136,45 @@ class CommandTests(unittest.TestCase):
             code, report = run_check(sys.executable, "-c", "pass")
             self.assertEqual(code, 0)
             self.assertEqual(report["test_gate"]["status"], "passed")
+
+    def test_passing_gate_requires_review_when_rewind_removes_a_test(self):
+        with TemporaryDirectory() as folder:
+            repo = Path(folder)
+
+            def git(*args):
+                subprocess.check_output(
+                    ["git", "-c", "user.name=Demo", "-c", "user.email=demo@example.invalid",
+                     "-c", "commit.gpgsign=false",
+                     "-c", f"core.hooksPath={repo / '.git' / 'disabled-hooks'}", *args], cwd=repo
+                )
+
+            git("init", "-q", "--template=")
+            path = repo / "test_sample.py"
+            before = ("import unittest\n\nclass Checks(unittest.TestCase):\n"
+                      "    def test_kept(self):\n        self.assertTrue(True)\n")
+            after = before + "\n    def test_removed(self):\n        self.assertTrue(True)\n"
+            for source in (before, after):
+                path.write_bytes(source.encode())
+                git("add", "-f", "--", path.name)
+                git("commit", "-qm", "Fixture snapshot")
+
+            command = [sys.executable, str(HERE / "rewind.py"), "--all",
+                       "--before-ref", "HEAD~1", "--after-ref", "HEAD"]
+            plain = subprocess.run(command + ["--json"], cwd=repo, capture_output=True)
+            self.assertEqual(plain.returncode, 0, plain.stderr)
+            checked = subprocess.run(
+                command + ["--json", "--check", sys.executable, "-m", "unittest", "discover"],
+                cwd=repo, capture_output=True,
+            )
+            self.assertEqual(checked.returncode, 1, checked.stderr)
+            report = json.loads(checked.stdout)
+            gate = report["test_gate"]
+            self.assertEqual(gate["status"], "passed")
+            self.assertEqual(gate["test_changes"], [
+                {"path": "test_sample.py", "removed_definitions": ["Checks.test_removed"]},
+            ])
+            self.assertIn("Removed Python test definition: Checks.test_removed", render_html(report))
+            self.assertEqual(path.read_bytes(), after.encode())
 
     def test_browser_demo_contains_all_three_outcomes(self):
         with TemporaryDirectory() as folder:

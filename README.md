@@ -119,6 +119,16 @@ rules already require review and skip the test gate. The report keeps textual
 merge status and the batch test result separate. A passing check covers only
 what the chosen command tests.
 
+When `--check` is enabled, proposed edits to conventional test paths
+require review even when the command passes. The CLI returns 1 and includes
+the affected files in text, HTML, and JSON (`test_gate.test_changes`).
+The audit recognizes files under `test`, `tests`, and `testsuite`, plus
+common Python test filenames such as `test_*.py`, `*_test.py`, and
+`conftest.py`. For Python files it lists removed top-level test functions
+and test methods. This is a source inventory. Generated and parametrized test
+IDs, custom test layouts, and changes to which inputs a surviving test checks
+can escape that inventory.
+
 Run only trusted commands and project code. Temporary copies leave the source
 checkout untouched during normal use and provide no security sandbox. Commands
 run with your account's permissions and inherited environment. Use a command

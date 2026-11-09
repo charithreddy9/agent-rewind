@@ -574,3 +574,10 @@ test failure. No ranking methods were compared in this replay because no
 full-batch candidate produced a shared-test failure. The results point to
 two prerequisites for such a comparison: enough runnable full batches with
 intervening edits, and a way to report test changes alongside pass status.
+
+The gate now reports proposed changes to conventional test files and lists
+removed Python test definitions. Replaying the packaging case after this
+change still ran 35 passing checks on each side. The gate recorded the
+successful command, listed all six removed definitions in
+`tests/test_pylock.py`, and returned CLI exit status 1 for review. This
+static audit does not enumerate runner-generated or parameterized test IDs.
