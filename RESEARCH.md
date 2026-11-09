@@ -215,3 +215,47 @@ the same. The old pytest baseline then stopped on an AST deprecation
 warning, and HTTPX progressed to a missing Trio dependency. Both runs retain
 these as baseline failures. Each report includes the selected tests, batch
 counts, and available test output.
+
+### Labeled comparison of smoke and targeted checks
+
+This controlled benchmark asks whether the gate can detect a known broken
+rewind when the test command checks the affected behavior. It uses eight
+synthetic cases arranged in four pairs. In each pair, the same agent edit is
+reversed. The later configuration, source edit, or dependent file determines
+whether the result still satisfies the declared contract.
+
+| Contract | Broken rewind | Valid control |
+| --- | --- | --- |
+| Worker limits | Minimum exceeds the restored maximum | Minimum equals the restored maximum |
+| Retry timing | Restored retry delay exceeds the new deadline | Restored retry delay remains within the deadline |
+| Callable dependency | Restored function references a removed import | Import remains available |
+| Consumer compatibility | Later consumer requires a field the rewind removes | Later consumer supplies a fallback for that field |
+
+Each fixture declares its label before generating the candidate. All eight
+candidates changed the target and merged without textual conflicts. The
+smoke suite checks basic loading, import, or a preserved field. The targeted
+suite adds one scenario-specific check while keeping the smoke check. Both
+suites use the same production gate, which first runs the command on a
+copy of the current files and then on a separate copy with the candidate.
+
+| Suite | Broken candidates flagged | Valid candidates flagged | Baseline failures |
+| --- | ---: | ---: | ---: |
+| Smoke | 0/4 | 0/4 | 0/8 |
+| Smoke plus targeted check | 4/4 | 0/4 | 0/8 |
+
+The checks were written with knowledge of the seeded failures. The comparison
+shows that the gate executes and reports these checks as intended. It does
+not measure how reliably a developer or automated system could select a
+useful check for an unfamiliar rewind. The valid labels apply only to the
+specified fixture contracts. The eight cases share designs within pairs
+and should not be treated as independent evidence of field performance.
+The historical cohort remains a separate evaluation of full-batch coverage.
+
+Run with Python and Git, using only the standard library and local files:
+
+```text
+python -B gate_benchmark.py
+```
+
+The JSON report includes the eight labels, the generated candidate text,
+baseline and candidate exit codes, and output for each suite.
