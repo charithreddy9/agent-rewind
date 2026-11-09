@@ -98,18 +98,23 @@ def select_checks(current: str, candidate: str, checks: dict[str, str]) -> dict:
     return selection
 
 
-def measure(scenario: Scenario, compare_selectors: bool = False) -> dict:
+def measure(scenario: Scenario, compare_selectors: bool = False,
+            pool: dict[str, str] | None = None) -> dict:
     preview = preview_rewind(scenario.before, scenario.after, scenario.current)
     if preview.has_conflicts or preview.text == scenario.current:
         raise ValueError(f"Expected a changed, conflict-free candidate for {scenario.name}")
-    checks = {"smoke": scenario.smoke, "contract": scenario.contract,
-              "environment": "assert Path.cwd().is_dir()"}
+    checks = pool if pool is not None else {
+        "smoke": scenario.smoke, "contract": scenario.contract,
+        "environment": "assert Path.cwd().is_dir()",
+    }
     selection = None
     if compare_selectors:
         selection = select_checks(scenario.current, preview.text, checks)
         suites = {name: checks[choice["selected"]] for name, choice in selection.items()}
     else:
         suites = {"smoke": scenario.smoke, "targeted": scenario.smoke + "\n" + scenario.contract}
+    if pool is not None:
+        suites.update({f"pool_{name}": code for name, code in pool.items()})
     results = {}
     with TemporaryDirectory(prefix="rewind-benchmark-") as directory:
         root = Path(directory).resolve()

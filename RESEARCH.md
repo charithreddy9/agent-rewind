@@ -301,3 +301,49 @@ python -B gate_benchmark.py --select
 
 The JSON includes each selected check, overlap terms, baseline and candidate
 results, and labels for scoring.
+
+### Separate evaluation with frozen selectors
+
+We ran the two selectors from commit `0fef39e8` unchanged on eight additional
+synthetic candidates. Four matched pairs exercise text encoding, an inclusive
+limit, whitespace normalization, and JSON boolean serialization. Each pair
+has a candidate that breaks the declared contract and a valid control. We
+fixed the fixtures, check bodies, and rotation rule before running the
+selectors. The fixture author knew the earlier development results, so this
+is a separate synthetic evaluation rather than an independently constructed
+test set.
+
+Every candidate had the same one-check budget. Each pool contains a smoke
+check, a contract check, and a generic check. The fixed baseline chooses the
+first entry. We rotate the pool by pair so that entry is not always the smoke
+check. The uniform baseline chooses one pool entry with equal probability.
+We calculated its exact expected number of flags by running each entry
+separately through the gate. Each baseline execution passed.
+
+| Method | Broken candidates flagged out of 4 | Valid candidates flagged out of 4 |
+| --- | ---: | ---: |
+| Fixed first entry | 1 | 0 |
+| Uniform random, expected count | 1.33 | 0 |
+| Changed-line token overlap | 2 | 0 |
+| Token overlap with one line of context | 1 | 0 |
+
+Changed-line overlap selected the encoding check. On the inclusive-limit
+case it tied at zero and inherited the first entry, the correct check.
+Adding context exposed the changed function's name and promoted the smoke
+test, which exercised an input below the limit. Both selectors missed the
+padding and serialization failures, where the failing behavior was reached
+through a separate consumer. The advantage of context on the development
+fixtures did not carry over to this set.
+
+The fixed order and curated pools influence these results. The checks were
+written with knowledge of the contracts, and four broken cases cannot
+establish that lexical overlap outperforms random selection. A useful next
+comparison would use dependency-aware ranking and real, pre-existing test
+pools, with failures that were never used to design the ranker.
+
+```text
+python -B gate_holdout.py
+```
+
+The JSON preserves the pool order, token matches, selected checks, and
+per-check gate results used to compute the uniform baseline.
