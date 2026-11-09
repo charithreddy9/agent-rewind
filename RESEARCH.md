@@ -164,3 +164,54 @@ the pre-revert tree before inspecting candidate results. Track unresolved
 merges, missing tests, baseline failures, and fixture changes separately.
 Report how many full batches are testable as well as the outcomes of the
 testable batches. These two selected cases do not estimate either rate.
+
+### Frozen ten-revert gate cohort
+
+We included every distinct revert with at least one intervening file edit
+in the expanded textual replay. The 15 eligible file cases map to 10 full
+batches across Requests, pytest, Black, and HTTPX. The full-batch denominator
+includes conflicts and setup failures. The cohort and exact test selectors
+were fixed before running this evaluation and are listed in
+[gate_cohort.py](gate_cohort.py). The earlier two targeted replays informed
+the design, so those cases are not unseen validation data. The selectors
+are a mix of behavior checks and smoke tests. The smoke tests for
+documentation and tooling cases do not exercise the edited behavior.
+
+| Project and revert | Full-batch result |
+| --- | --- |
+| Requests `09fd857e` | Candidate passed 2 selected tests |
+| Requests `1fcda912` | Gate skipped after 1 merge conflict |
+| Requests `b14584f3` | Baseline could not import `collections.MutableMapping` on Python 3.12 |
+| pytest `6a47389c` | Candidate passed 1 existing skip test |
+| pytest `7b6e477e` | Gate skipped after 3 merge conflicts and 1 unsupported file change |
+| pytest `b3ed595f` | Baseline failed during startup |
+| Black `b9ad4da2` | Candidate passed 1 formatting smoke test |
+| Black `773e4a22` | Gate skipped after 2 merge conflicts |
+| Black `394edc38` | Snapshot rejected the tracked symlink `docs/authors.md` |
+| HTTPX `631ba976` | Baseline failed while loading test configuration |
+
+Three of ten batches reached candidate execution, and all three passed their
+selected checks. The other seven comprised three incomplete merge previews,
+three baseline startup failures, and one unsupported snapshot. The existing
+pytest skip test passed even though the maintainer's two new regression
+tests exposed a `NameError` in the earlier source-file replay. This is a
+concrete example of an existing check missing the behavior under study.
+With only four passing test invocations across three candidates, these
+results cannot estimate sensitivity to regressions or support a safety claim.
+
+Run with Python 3.12, Git, full clones, and the pinned dependencies from the
+targeted replay above. Add these packages for the initial cohort run:
+
+```text
+python -m pip install platformdirs==4.5.0 certifi==2025.10.5 hstspreload==2025.1.1 chardet==3.0.4 h11==0.9.0 h2==3.2.0 hpack==3.0.0 hyperframe==5.2.0 idna==2.10 rfc3986==1.5.0 sniffio==1.3.1 urllib3==1.26.20
+python -B gate_cohort.py ../rewind-sources
+```
+
+The recorded environment used Python 3.12.14 and Git 2.51.1. A follow-up
+reran the same frozen cases after adding `py==1.11.0`, `tomli==2.2.1`,
+`trustme==1.2.1`, `cryptography==45.0.7`, `cffi==2.0.0`,
+`pycparser==2.23`, and `uvicorn==0.30.6`. The category counts stayed
+the same. The old pytest baseline then stopped on an AST deprecation
+warning, and HTTPX progressed to a missing Trio dependency. Both runs retain
+these as baseline failures. Each report includes the selected tests, batch
+counts, and available test output.
