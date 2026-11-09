@@ -259,3 +259,45 @@ python -B gate_benchmark.py
 
 The JSON report includes the eight labels, the generated candidate text,
 baseline and candidate exit codes, and output for each suite.
+
+### One-check selection from the rewind diff
+
+We reused the eight synthetic cases as development data. Each method could
+run one check from the same three-entry pool: the smoke check, the existing
+contract check from the previous experiment, and a generic working-directory
+check. The fixed-order baseline always takes the first entry, the smoke check.
+The two selectors count distinct identifier-shaped tokens shared between the
+check body and the proposed diff. They use either changed lines alone or the
+same lines with one adjacent line of context on each side. Ties use pool
+order. The selectors receive the current and proposed file text and the check
+bodies. They do not receive the fixture label, expected output, or results.
+The selector sees only the changed file, so it does not inspect the separate
+consumer module. The selected check runs through the production test gate.
+
+| One-check method | Broken candidates flagged | Valid candidates flagged |
+| --- | ---: | ---: |
+| Fixed smoke-first order | 0/4 | 0/4 |
+| Changed-line token overlap | 2/4 | 0/4 |
+| Token overlap with one line of context | 3/4 | 0/4 |
+
+All selected checks passed on their baselines. Changed lines contained the
+configuration keys, so both overlap methods chose the two configuration
+checks. One line of context added the enclosing function name and let the
+selector pick the check that exposed the missing import. Both methods missed
+the consumer failure. The smoke check shared the retained field name with the
+diff, while the contract test called an indirect consumer and did not name
+the removed field.
+
+This is a development-set comparison. The pool was curated around the known
+fixture contracts and the fixed order deliberately represents a smoke-first
+workflow. The results do not estimate how either selector would perform on a
+real test suite or on new cases. A follow-up should freeze the selector,
+evaluate held-out changes, and compare against additional equal-budget
+baselines before making claims about test selection quality.
+
+```text
+python -B gate_benchmark.py --select
+```
+
+The JSON includes each selected check, overlap terms, baseline and candidate
+results, and labels for scoring.

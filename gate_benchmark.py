@@ -1,9 +1,12 @@
 """Compare smoke and targeted checks on labeled, synthetic rewind candidates."""
 
+import argparse
 from collections import Counter
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 import json
 from pathlib import Path
+import re
 import sys
 from tempfile import TemporaryDirectory
 
@@ -68,37 +71,78 @@ def scenarios() -> tuple[Scenario, ...]:
     return (*config_cases, *import_cases, *interface_cases)
 
 
-def measure(scenario: Scenario) -> dict:
+def identifiers(text: str) -> set[str]:
+    return set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", text))
+
+
+def diff_identifiers(current: str, candidate: str, context: int) -> set[str]:
+    old, new = current.splitlines(), candidate.splitlines()
+    changed = set()
+    for operation, start, stop, new_start, new_stop in SequenceMatcher(
+        None, old, new, autojunk=False
+    ).get_opcodes():
+        if operation != "equal":
+            changed.update(identifiers("\n".join(old[max(0, start - context):stop + context])))
+            changed.update(identifiers("\n".join(new[max(0, new_start - context):new_stop + context])))
+    return changed
+
+
+def select_checks(current: str, candidate: str, checks: dict[str, str]) -> dict:
+    selection = {"fixed": {"selected": next(iter(checks))}}
+    for method, context in (("changed_lines", 0), ("one_context_line", 1)):
+        terms = diff_identifiers(current, candidate, context)
+        matches = {name: sorted(terms & identifiers(code)) for name, code in checks.items()}
+        # max preserves the fixed order for ties, including zero-overlap cases.
+        selected = max(matches, key=lambda name: len(matches[name]))
+        selection[method] = {"selected": selected, "matches": matches}
+    return selection
+
+
+def measure(scenario: Scenario, compare_selectors: bool = False) -> dict:
     preview = preview_rewind(scenario.before, scenario.after, scenario.current)
     if preview.has_conflicts or preview.text == scenario.current:
         raise ValueError(f"Expected a changed, conflict-free candidate for {scenario.name}")
+    checks = {"smoke": scenario.smoke, "contract": scenario.contract,
+              "environment": "assert Path.cwd().is_dir()"}
+    selection = None
+    if compare_selectors:
+        selection = select_checks(scenario.current, preview.text, checks)
+        suites = {name: checks[choice["selected"]] for name, choice in selection.items()}
+    else:
+        suites = {"smoke": scenario.smoke, "targeted": scenario.smoke + "\n" + scenario.contract}
     results = {}
     with TemporaryDirectory(prefix="rewind-benchmark-") as directory:
         root = Path(directory).resolve()
         target = scenario.target
         (root / target).write_bytes(scenario.current.encode())
-        files = [target, "smoke.py", "targeted.py"]
+        files = [target, *(f"{suite}.py" for suite in suites)]
         if scenario.context:
             (root / "consumer.py").write_text(scenario.context, encoding="utf-8")
             files.append("consumer.py")
         preamble = "import json\nfrom pathlib import Path\n"
-        for suite, code in (("smoke", scenario.smoke),
-                            ("targeted", scenario.smoke + "\n" + scenario.contract)):
+        for suite, code in suites.items():
             (root / f"{suite}.py").write_text(preamble + code + "\n", encoding="utf-8")
         tracked = "\0".join(files).encode() + b"\0"
-        for suite in ("smoke", "targeted"):
+        for suite in suites:
             results[suite] = check_rewind(
                 root, tracked, {target: (scenario.current, preview.text)},
                 [sys.executable, "-B", f"{suite}.py"],
             )
-    return {"name": scenario.name, "label": "broken" if scenario.broken else "valid",
-            "candidate": preview.text, "results": results}
+    record = {"name": scenario.name, "label": "broken" if scenario.broken else "valid",
+              "candidate": preview.text, "results": results}
+    if selection is not None:
+        record["selection"] = selection
+    return record
 
 
 def main() -> None:
-    records = [measure(scenario) for scenario in scenarios()]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--select", action="store_true", help="Compare equal-budget test selectors")
+    args = parser.parse_args()
+    records = [measure(scenario, args.select) for scenario in scenarios()]
+    suites = tuple(records[0]["results"])
     summary = {}
-    for suite in ("smoke", "targeted"):
+    for suite in suites:
         counts = Counter()
         for record in records:
             label = record["label"]
@@ -107,7 +151,7 @@ def main() -> None:
         summary[suite] = dict(counts)
     print(json.dumps({"summary": summary, "cases": records}, indent=2))
     if any(record["results"][suite]["status"] not in {"passed", "candidate_failed"}
-           for record in records for suite in ("smoke", "targeted")):
+           for record in records for suite in suites):
         sys.exit(1)
 
 
