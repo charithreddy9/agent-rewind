@@ -104,3 +104,25 @@ git clone --no-checkout https://github.com/encode/httpx.git ../rewind-sources/ht
 git clone --no-checkout https://github.com/Textualize/rich.git ../rewind-sources/rich
 python external_history.py ../rewind-sources --expanded
 ```
+
+### Targeted upstream tests on the two code differences
+
+We replayed the two clean, byte-different code files against the upstream tests most directly associated with each revert. Each run starts from a fresh archive of the maintainer's revert commit. We substitute only the target file with the Agent Rewind candidate or the file from immediately before the revert. The pre-revert file is a negative control. All other source and test files stay at the maintainer's revision, so this is a single-file experiment in a fixed context.
+
+| Upstream revert and selected behavior | Maintainer | Agent Rewind | Pre-revert file |
+| --- | ---: | ---: | ---: |
+| [pytest `6a47389c`](https://github.com/pytest-dev/pytest/commit/6a47389c7813ec7ed395c0279c4b7685fde9f95a), unittest skip handling | 2/2 passed | 0/2 passed | 0/2 passed |
+| [Black `773e4a22`](https://github.com/psf/black/commit/773e4a22d58be1f1aa82df7ad9a0f4c4e1328c10), numeric literal formatting | 2/2 passed | 2/2 passed | 0/2 passed |
+
+The pytest candidate called `pytest.skip` after the module-level `pytest` import had been removed. Both tests exposed a `NameError`. The maintainer used the directly imported `skip` function. The pre-revert file instead surfaced `unittest.SkipTest` as an error or failure. The Black candidate agreed with the maintainer on the two tested numeric formatting behaviors despite different implementation text.
+
+The pytest result demonstrates a behavioral regression in a rewind that had no textual conflict. The Black result provides limited evidence for the specific behaviors tested. Both code cases were selected after the textual comparison. Four upstream tests across two files cannot estimate a general regression rate or establish behavioral equivalence. The original upstream edits are a proxy for agent changes.
+
+Reproduce with Python 3.12, Git, and the full pytest and Black clones from the expanded replay. Run the archived upstream code in a disposable environment. Each variant uses a fresh process with third-party pytest plugin autoload disabled. The runner supplies fixed placeholders for build-generated version modules missing from the archives.
+
+```text
+python -m pip install pluggy==1.6.0 iniconfig==2.3.0 packaging==26.0 pygments==2.19.2 attrs==25.4.0 pytest==8.4.2 click==8.0.4 appdirs==1.4.4 toml==0.10.2 regex==2025.11.3 pathspec==0.12.1 mypy-extensions==1.1.0
+python -B behavior_replay.py ../rewind-sources
+```
+
+The recorded replay used Python 3.12.14 and Git 2.51.1.
