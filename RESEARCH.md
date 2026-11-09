@@ -49,3 +49,32 @@ A second evaluation uses four existing commits from this repository: the output 
 Run `python history_benchmark.py` from a full clone. The recorded run used Git 2.51.1 and Python 3.12.14. The replay reads committed file versions and evaluates in memory.
 
 The patches are real. The later edits and expected outcomes are scripted. Three file paths in one project and four commit selections give this replay narrow coverage. The two note positions model easy separable edits, and all overlap cases were selected to touch an agent-introduced line. The replay measures textual rollback only. It does not estimate the frequency of conflicts in developer workflows or evaluate semantic validation on external repositories.
+
+## External replay against recorded maintainer reverts
+
+The external replay uses the Git histories of [Requests](https://github.com/psf/requests), [Flask](https://github.com/pallets/flask), and [Click](https://github.com/pallets/click). The script pins a history tip for each project and inspects up to the 12 newest first-parent commits with Git's standard revert marker. It includes only reverts with exactly one recorded target, where both commits have one parent and the target is an ancestor of the revert's parent. It takes the intersection of same-mode regular text files modified by both commits. Missing targets, non-UTF-8 blobs, binary blobs with NUL bytes, renames, additions, and deletions are outside this sample.
+
+For each eligible file, the inputs are the target's parent, the target itself, and the revert's parent. The reference is the maintainer's committed file in the revert. An intervening edit means that the file blob in the revert's parent differs from the target's output. Exact results match the recorded revert byte for byte. Review means the tool emitted a textual conflict. An exact match checks agreement with the maintainer's choice for that file. No application tests or configuration rules are used in this replay.
+
+| Strategy | Exact with intervening edits | Review with intervening edits | Exact without intervening edits |
+| --- | ---: | ---: | ---: |
+| Full restore | 0/3 | 0/3 | 10/10 |
+| Skip files edited later | 0/3 | 0/3 | 10/10 |
+| Git selective reversal | 2/3 | 1/3 | 10/10 |
+
+Both exact matches with intervening edits were in Requests, at reverts `09fd857e` and `b14584f3`. The third Requests case, `1fcda912` on `docs/user/advanced.rst`, needs review. Flask and Click contribute unchanged-since-target controls only. All three strategies matched the maintainer in those controls.
+
+The labels come from actual maintainer commits, and both the original and intervening changes are historical. These histories do not identify agent-authored edits. Git may also have produced the recorded reverts, so agreement measures reproduction of a maintenance outcome, not an independent semantic judgment. The selection favors reverts with explicit Git markers and common supported file changes. The three intervening-edit cases all come from one project, which limits generalization.
+
+### Reproduce the external replay
+
+From the Agent Rewind directory, use full local clones in a separate folder. The script reads Git objects and leaves the checkouts untouched.
+
+```powershell
+git clone --no-checkout https://github.com/psf/requests.git ../rewind-sources/requests
+git clone --no-checkout https://github.com/pallets/flask.git ../rewind-sources/flask
+git clone --no-checkout https://github.com/pallets/click.git ../rewind-sources/click
+python external_history.py ../rewind-sources
+```
+
+The recorded run used Git 2.51.1 and Python 3.12.14. The script prints each case, the revert identifier, and aggregate counts. The corpus is referenced by commit IDs, so the Agent Rewind repository does not copy upstream source files.

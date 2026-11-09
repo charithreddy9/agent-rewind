@@ -121,3 +121,5 @@ python -m unittest -v
 The results come from hand-written fixtures, including cases designed around known configuration rules. See the [research note](RESEARCH.md) for the method, related work, full outcome counts, and limitations.
 
 For a replay using four actual commits from this repository and scripted later edits, run `python history_benchmark.py` from a full Git clone. The research note reports those outcomes separately from the hand-written fixtures.
+
+The [external replay](RESEARCH.md#external-replay-against-recorded-maintainer-reverts) uses actual maintainer reverts in Requests, Flask, and Click as the expected file contents. It runs against local clones and reports cases with intervening edits separately.
