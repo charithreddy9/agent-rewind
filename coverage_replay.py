@@ -5,6 +5,7 @@ import ast
 from difflib import SequenceMatcher
 from fractions import Fraction
 from io import BytesIO
+import inspect
 import json
 import os
 from pathlib import Path
@@ -48,7 +49,8 @@ def run_pool(repo: Path, revision: str, target: str, contents: str,
         return json.loads(result.read_text(encoding="utf-8"))
 
 
-def worker(target: str, trace: bool) -> int:
+def worker(target: str, trace: bool, test_paths: list[str] | None = None,
+           pool_limit: int = POOL_LIMIT) -> int:
     import pytest
 
     filename = str(Path(target).resolve())
@@ -56,9 +58,16 @@ def worker(target: str, trace: bool) -> int:
 
     class Pool:
         def pytest_collection_modifyitems(self, config, items):
-            items.sort(key=lambda item: (item.location[1], item.nodeid))
-            config.hook.pytest_deselected(items=items[POOL_LIMIT:])
-            del items[POOL_LIMIT:]
+            items.sort(key=lambda item: (item.location[0], item.location[1], item.nodeid))
+            config.hook.pytest_deselected(items=items[pool_limit:])
+            del items[pool_limit:]
+            if trace and test_paths is not None:
+                for item in items:
+                    try:
+                        body = inspect.getsource(item.obj)
+                    except (AttributeError, OSError, TypeError):
+                        body = ""
+                    records[item.nodeid] = {"phases": {}, "lines": [], "source": body}
 
         @pytest.hookimpl(hookwrapper=True)
         def pytest_runtest_call(self, item):
@@ -80,7 +89,7 @@ def worker(target: str, trace: bool) -> int:
             finally:
                 if trace:
                     sys.settrace(previous)
-            records[item.nodeid]["lines"] = sorted(lines)
+            records.setdefault(item.nodeid, {"phases": {}})["lines"] = sorted(lines)
 
         def pytest_runtest_logreport(self, report):
             record = records.setdefault(report.nodeid, {"phases": {}, "lines": []})
@@ -90,7 +99,8 @@ def worker(target: str, trace: bool) -> int:
 
     # Historical Black uses os.cpu_count() to size its process pool.
     with patch("os.cpu_count", return_value=2):
-        status = pytest.main(["-q", "--disable-warnings", f"{TEST_FILE}::{TEST_CLASS}"], plugins=[Pool()])
+        selectors = test_paths if test_paths is not None else [f"{TEST_FILE}::{TEST_CLASS}"]
+        status = pytest.main(["-q", "--disable-warnings", *selectors], plugins=[Pool()])
     Path("pool-results.json").write_text(json.dumps(records), encoding="utf-8")
     return int(status)
 

@@ -455,3 +455,69 @@ it into one directory and run:
 ```text
 python -B coverage_cohort_plan.py ../rewind-coverage-sources
 ```
+
+#### Frozen cohort execution
+
+The [cohort runner](coverage_cohort.py) reads the frozen manifest and uses
+the same test tracing as the Black pilot. It creates a fresh archive of the
+pre-revert tree for every phase. Baseline profiling time and standalone
+selected-test time include Python startup and test collection. Ranking time
+covers score calculation and selection. A selected node's detection result
+comes from the bounded candidate pool. The runner also executes each
+distinct selected node in isolation and records its outcome and timing.
+
+The first run used Python 3.12.14, Git 2.51.1, and the exact versions in
+[coverage_cohort_requirements.txt](coverage_cohort_requirements.txt).
+Three of 13 cases reached candidate evaluation. All three were controls
+and had 35 eligible tests each. The other ten cases comprised eight baseline
+setup errors and two empty test-file pools. The first run observed no
+baseline-pass to candidate-fail transitions. It therefore provided no
+comparison of the rankers' ability to detect failures.
+
+To reproduce the first run with the full pinned clones from the manifest:
+
+```text
+python -m pip install -r coverage_cohort_requirements.txt
+python -B coverage_cohort.py ../rewind-coverage-sources > coverage-cohort-results.json
+```
+
+A second run added `html5lib==1.1`, `webencodings==0.5.1`, and
+`setuptools==80.9.0` to the same environment. The manifest, test cap,
+timeouts, and ranking rules stayed fixed. The additional dependencies
+allowed two Sphinx cases from the same LaTeX revert to reach candidate
+evaluation.
+
+| Stratum | Planned | Evaluated | Baseline setup errors | Empty test pools |
+| --- | ---: | ---: | ---: | ---: |
+| Intervening edit | 4 | 2 | 2 | 0 |
+| Control | 9 | 3 | 4 | 2 |
+| Total | 13 | 5 | 6 | 2 |
+
+| Evaluated target | Call failures / eligible tests | Fixed, lexical, coverage hits | Uniform detection probability | Baseline profiling |
+| --- | ---: | --- | ---: | ---: |
+| attrs package initializer | 0/35 | 0, 0, 0 | 0 | 0.60 s |
+| attrs comparison module | 0/35 | 0, 0, 0 | 0 | 0.51 s |
+| packaging lockfile module | 0/35 | 0, 0, 0 | 0 | 0.47 s |
+| Sphinx LaTeX builder | 10/29 | 1, 1, 1 | 10/29 | 39.81 s |
+| Sphinx LaTeX writer | 29/29 | 1, 1, 1 | 1 | 42.15 s |
+
+Both Sphinx cases had 29 baseline-passing nodes out of 35 executed. The
+builder candidate failed when tests tried to read a generated LaTeX
+artifact that was absent. The writer candidate tried to load a template
+that was absent from the pre-revert tree. The experiment changed one
+source file at a time, so these failures are evidence about isolated
+rewinds and can reflect dependencies on files left at the pre-revert
+revision. The two cases share one upstream revert. All three deterministic
+methods caught both failures, and the selected checks reproduced their
+pooled outcomes in standalone runs. There was no measured detection gain
+from coverage on the evaluable cases. Ranking computation took under
+20 ms per method and case in this run. Standalone selected-check wall
+times, including startup and collection, ranged from 0.37 to 6.73 s.
+
+The remaining blockers were two older Sphinx revisions importing an API
+removed from Jinja2, two urllib3 revisions failing on a missing generated
+version module or legacy SSL dependencies, and two Werkzeug revisions
+incompatible with current Python or pytest configuration. The frozen
+Scrapy and older Werkzeug controls had no selected test files. These
+cases remain in the denominator. The evaluable evidence is too narrow
+for a general comparison of the rankers.
