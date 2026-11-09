@@ -521,3 +521,56 @@ incompatible with current Python or pytest configuration. The frozen
 Scrapy and older Werkzeug controls had no selected test files. These
 cases remain in the denominator. The evaluable evidence is too narrow
 for a general comparison of the rankers.
+
+### Modern full-batch feasibility replay
+
+We took the distinct reverts dated on or after 2021-01-01 from the frozen
+coverage manifest. This yields five reverts across four projects. For each
+revert, we used the union of its previously selected test files, with the
+same source-order cap of 35 nodes. The [runner](full_batch_cohort.py)
+checks out the pre-revert revision and invokes the public batch CLI on the
+entire original change. If the preview blocks the batch, a separate baseline
+probe checks whether the selected upstream tests can run. The probe does not
+test a partial candidate.
+
+The replay used Python 3.12.14, Git 2.51.1, and the
+[pinned full-batch environment](full_batch_requirements.txt). The urllib3
+checkout receives a generated version stub based on the nearest numeric Git
+tag. Both versions use identical setup, with third-party pytest and
+Hypothesis plugin autoload disabled. An initial run exposed a Hypothesis
+entry point importing modern Trio into the old attrs checkout. We disabled
+that autoload and reran all five cases with the same refs and test files.
+
+```text
+python -m pip install -r full_batch_requirements.txt
+python -B full_batch_cohort.py ../rewind-coverage-sources > full-batch-results.json
+```
+
+| Revert | Clean / conflict / unsupported paths | Baseline passing / executed | Candidate result |
+| --- | ---: | ---: | --- |
+| attrs `d4090f47` | 1 / 0 / 0 | 35/35 | Passed, same bounded test IDs |
+| attrs `fbed0320` | 1 / 0 / 0 | 35/35 | Passed, same bounded test IDs |
+| packaging `2f933f2a` | 2 / 0 / 0 | 35/35 | Passed, four IDs in each bounded pool absent from the other |
+| Sphinx `59de8d52` | 17 / 1 / 94 | 29/35 | Preview blocked the batch |
+| urllib3 `1e94feb2` | 2 / 0 / 1 | 35/35 | Preview blocked the batch |
+
+Three of five full-batch candidates ran, and all three passed the checks
+they executed. All three were controls with no intervening edit in the
+package source files used for cohort selection. No shared baseline-passing
+test became a call failure. The packaging rewind changed the production and
+test files together. Direct source comparison confirmed that its proposed
+test file matched the maintainer's and removed six test functions. The
+four-in/four-out node counts describe the capped pools, including
+parameterized cases. They do not measure all test functions removed by
+the batch. A passing report here means the candidate's remaining bounded
+checks passed.
+
+Sphinx included template renames that the preview represented as unsupported
+additions and deletions, plus one textual conflict. Its baseline probe also
+had six LaTeX build failures involving missing packages or fonts. The urllib3
+baseline passed, but a single changelog addition in the original edit
+prevented a complete preview. These blockers are distinct from a candidate
+test failure. No ranking methods were compared in this replay because no
+full-batch candidate produced a shared-test failure. The results point to
+two prerequisites for such a comparison: enough runnable full batches with
+intervening edits, and a way to report test changes alongside pass status.
