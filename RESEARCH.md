@@ -347,3 +347,52 @@ python -B gate_holdout.py
 
 The JSON preserves the pool order, token matches, selected checks, and
 per-check gate results used to compute the uniform baseline.
+
+### Coverage-based ranking on a historical Black test pool
+
+This exploratory replay starts from the same pre-revert Black tree used in
+the earlier single-file gate experiment. It substitutes only
+`src/black/__init__.py` and leaves the pre-revert tests and expected outputs
+in place. It compares one selected candidate test per method. The broader
+test pool is run on the baseline for profiling and on the candidate to
+identify failures against which to score the choices. All choices are
+computed before executing the candidate pool.
+
+We used the first 35 nodes of the existing `BlackTestCase` in source order.
+An initial bounded pilot used pytest's alphabetical collection order. It
+excluded the two known numeric-formatting tests and yielded no failures among
+34 baseline-passing nodes. We switched to source order after observing that
+limitation, so the scored pool is exploratory. The source-order pool had
+32 baseline-passing tests and three skips. The candidate failed two of the
+32 tests against the pre-revert expectations.
+
+| One-test method | Selected test | Detected a failure |
+| --- | --- | --- |
+| First eligible node ID | `test_async_as_identifier` | No |
+| Changed-line token overlap | `test_get_features_used_decorator` | No |
+| Baseline coverage of changed lines | `test_numeric_literals` | Yes |
+| Uniform random from eligible nodes | Any of 32 | 2/32 probability |
+
+The coverage ranker counts distinct changed lines on the baseline side that
+each test executed. It followed calls into the changed module without requiring
+the test to name the internal numeric formatting helpers. The selected test
+covered 18 changed lines, and the other failing numeric test covered 16.
+Ties use node ID order. Tracing covers only the test call phase in the main
+thread and does not collect worker process or fixture coverage. The recorded
+baseline profiling run took about 35 seconds. The one-test budget applies
+to the selected candidate check and excludes profiling costs, which the
+lexical ranker does not incur.
+
+This is one known historical case. The pre-revert tests flag a change in the
+old formatting contract. The maintainer intentionally changed expected
+outputs, so the result does not establish that the rewind is behaviorally
+wrong under the new contract. The observed ranking also cannot establish that
+coverage outperforms lexical ranking across projects.
+
+Use the Python 3.12 environment and pinned dependencies from the targeted
+replay. The replay caps historical Black's worker count at two in both runs
+and writes per-test outcomes, selected nodes, and scores as JSON.
+
+```text
+python -B coverage_replay.py ../rewind-sources/black
+```
