@@ -126,3 +126,41 @@ python -B behavior_replay.py ../rewind-sources
 ```
 
 The recorded replay used Python 3.12.14 and Git 2.51.1.
+
+### Test gate from the actual pre-revert trees
+
+We reused the same two projects and test selections, starting each gate run
+from the parent of the maintainer's revert. We ran the public CLI on the full
+original edit and separately ran its gate on just the previously selected
+source file. Each gate copies the pre-revert tree before testing. The
+single-file variant changes only that source file, so its tests and fixtures
+remain at the pre-revert revision.
+
+| Project | Full batch preview | Full batch test gate | Single-file test gate |
+| --- | --- | --- | --- |
+| pytest | 1 clean | Baseline failed with exit 4. Both selected test nodes were added by the revert. | Same missing-test outcome. Candidate not run. |
+| Black | 7 clean, 2 conflicts | Skipped because the batch needed textual review. | Baseline passed 2/2. Candidate passed 0/2 with the pre-revert fixtures. |
+
+The Black maintainer revert changed the expected output in the numeric
+literal fixtures alongside the implementation. The single-file gate detected
+disagreement with the old fixtures. The earlier maintainer-context replay
+showed agreement with the new fixtures for those same two tests. These outcomes
+measure different contracts. Neither establishes what a complete Black batch
+would do after resolving its conflicts.
+
+Run with the same environment as the targeted upstream replay:
+
+```text
+python -B behavior_replay.py ../rewind-sources --gate
+```
+
+The JSON includes full batch and single-file statuses, exit codes, and test
+output. The replay command itself returns success when it produces the report,
+including when the gate flags a candidate. It uses disposable local checkouts
+and stages only the generated version stub when needed.
+
+For a larger evaluation, freeze the revert list and select tests available in
+the pre-revert tree before inspecting candidate results. Track unresolved
+merges, missing tests, baseline failures, and fixture changes separately.
+Report how many full batches are testable as well as the outcomes of the
+testable batches. These two selected cases do not estimate either rate.
