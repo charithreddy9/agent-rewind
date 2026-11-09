@@ -14,6 +14,12 @@ SNAPSHOTS = {
     "flask": "49943b5a94413a530761350f04e896f76e8d620e",
     "click": "8abb77a8432e03ed14a95f972b44f905279415a7",
 }
+EXPANDED_SNAPSHOTS = {
+    "pytest": "bc14038c406563b18a03e15453a10b9eee969e42",
+    "black": "b4f1fcae48826790b6f93ca9226d20003bce0eaa",
+    "httpx": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+    "rich": "3a109ccdffe5b2d0e30684a304fbd388e99ce57b",
+}
 REVERT_MARKER = re.compile(rb"^This reverts commit ([0-9a-f]{40})\b", re.MULTILINE)
 
 
@@ -63,12 +69,15 @@ def cases(repo: Path, head: str):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("clones", type=Path, help="Directory containing full requests, flask, and click clones")
+    parser.add_argument("--expanded", action="store_true",
+                        help="Also require full pytest, black, httpx, and rich clones")
     args = parser.parse_args()
+    snapshots = SNAPSHOTS | EXPANDED_SNAPSHOTS if args.expanded else SNAPSHOTS
     strategies = (full_restore, skip_edited, preview_rewind)
     totals = Counter()
     print("Repository / revert / file | intervening edit | full / skip / selective")
     try:
-        for name, head in SNAPSHOTS.items():
+        for name, head in snapshots.items():
             for revert, path, intervening, (before, after, current, expected) in cases(args.clones / name, head):
                 outcomes = []
                 for strategy in strategies:

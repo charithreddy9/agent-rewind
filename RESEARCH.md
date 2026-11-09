@@ -78,3 +78,29 @@ python external_history.py ../rewind-sources
 ```
 
 The recorded run used Git 2.51.1 and Python 3.12.14. The script prints each case, the revert identifier, and aggregate counts. The corpus is referenced by commit IDs, so the Agent Rewind repository does not copy upstream source files.
+
+### Expanded replay
+
+The expanded run adds [pytest](https://github.com/pytest-dev/pytest), [Black](https://github.com/psf/black), [HTTPX](https://github.com/encode/httpx), and [Rich](https://github.com/Textualize/rich) using the same selection and scoring rules. All eligible file cases from the pinned windows are included. Rich yielded no eligible files. The table counts file cases, so multiple files from one revert are related observations.
+
+| Project | Intervening edits | Selective exact | Selective review | Selective different |
+| --- | ---: | ---: | ---: | ---: |
+| Requests | 3 | 2 | 1 | 0 |
+| pytest | 6 | 2 | 3 | 1 |
+| Black | 5 | 3 | 0 | 2 |
+| HTTPX | 1 | 1 | 0 | 0 |
+| **Total** | **15** | **8** | **4** | **3** |
+
+Full restore and skip-edited each matched zero of the 15 cases with intervening edits. All three strategies matched all 28 cases without intervening edits.
+
+A clean but different result means the tool produced text that did not match the recorded revert. It does not by itself identify a broken candidate. For example, the recorded Black revert `b9ad4da2` added a changelog entry about the revert that an inverse patch would have no basis to generate. The other differences were in `src/_pytest/unittest.py` at `6a47389c` and `src/black/__init__.py` at `773e4a22`. They contain code differences, so byte agreement alone cannot establish whether the alternative is behaviorally correct.
+
+Use the original three clones and add:
+
+```powershell
+git clone --no-checkout https://github.com/pytest-dev/pytest.git ../rewind-sources/pytest
+git clone --no-checkout https://github.com/psf/black.git ../rewind-sources/black
+git clone --no-checkout https://github.com/encode/httpx.git ../rewind-sources/httpx
+git clone --no-checkout https://github.com/Textualize/rich.git ../rewind-sources/rich
+python external_history.py ../rewind-sources --expanded
+```

@@ -122,4 +122,4 @@ The results come from hand-written fixtures, including cases designed around kno
 
 For a replay using four actual commits from this repository and scripted later edits, run `python history_benchmark.py` from a full Git clone. The research note reports those outcomes separately from the hand-written fixtures.
 
-The [external replay](RESEARCH.md#external-replay-against-recorded-maintainer-reverts) uses actual maintainer reverts in Requests, Flask, and Click as the expected file contents. It runs against local clones and reports cases with intervening edits separately.
+The [external replay](RESEARCH.md#external-replay-against-recorded-maintainer-reverts) uses actual maintainer reverts in Requests, Flask, and Click as the expected file contents. It runs against local clones and reports cases with intervening edits separately. An optional `--expanded` run covers seven repository histories and yielded 43 eligible file cases.
