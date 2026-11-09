@@ -1,0 +1,164 @@
+{
+  "protocol_version": 1,
+  "test_budget": 1,
+  "max_nodes_per_case": 35,
+  "timeout_seconds_per_phase": 120,
+  "projects": [
+    {
+      "project": "attrs",
+      "upstream": "python-attrs/attrs",
+      "snapshot": "9d9f94a043de7fc4012459853a4ed597a5577855",
+      "cases": [
+        {
+          "revert": "d4090f47069bf7bedcfba9d39103fd71c4e580a3",
+          "target": "src/attr/__init__.py",
+          "stratum": "control",
+          "test_files": [
+            "tests/test_3rd_party.py",
+            "tests/test_abc.py",
+            "tests/test_annotations.py"
+          ]
+        },
+        {
+          "revert": "fbed0320a6ce72d03b98c5ee45129088708cd485",
+          "target": "src/attr/_cmp.py",
+          "stratum": "control",
+          "test_files": [
+            "tests/test_cmp.py"
+          ]
+        }
+      ]
+    },
+    {
+      "project": "packaging",
+      "upstream": "pypa/packaging",
+      "snapshot": "713d0d78924ab2686c513dde058ce6aafc63e766",
+      "cases": [
+        {
+          "revert": "2f933f2a60e7b84d503b84a1713a8d112cfe49c1",
+          "target": "src/packaging/pylock.py",
+          "stratum": "control",
+          "test_files": [
+            "tests/test_pylock.py"
+          ]
+        }
+      ]
+    },
+    {
+      "project": "pluggy",
+      "upstream": "pytest-dev/pluggy",
+      "snapshot": "30b8ae208f5955125f2a2edcb038c03893774b49",
+      "cases": []
+    },
+    {
+      "project": "scrapy",
+      "upstream": "scrapy/scrapy",
+      "snapshot": "1bc0473909e4e5a3d0b62710715b6383c5641765",
+      "cases": [
+        {
+          "revert": "21c8b89422429cf4cdf8054e1c8d398d6b1b82eb",
+          "target": "scrapy/contrib/feedexport.py",
+          "stratum": "control",
+          "test_files": []
+        }
+      ]
+    },
+    {
+      "project": "sphinx",
+      "upstream": "sphinx-doc/sphinx",
+      "snapshot": "035a07c32c3241fd3356f4d827800c1f88525272",
+      "cases": [
+        {
+          "revert": "59de8d52029deca803d38b5d084a3a32c7b7f994",
+          "target": "sphinx/builders/latex/__init__.py",
+          "stratum": "intervening",
+          "test_files": [
+            "tests/test_build_latex.py",
+            "tests/test_writer_latex.py"
+          ]
+        },
+        {
+          "revert": "59de8d52029deca803d38b5d084a3a32c7b7f994",
+          "target": "sphinx/writers/latex.py",
+          "stratum": "intervening",
+          "test_files": [
+            "tests/test_build_latex.py",
+            "tests/test_writer_latex.py"
+          ]
+        },
+        {
+          "revert": "94934b2bdfd6fca9d505577aa6314f522be148f6",
+          "target": "sphinx/domains/cpp.py",
+          "stratum": "intervening",
+          "test_files": [
+            "tests/test_domain_cpp.py"
+          ]
+        },
+        {
+          "revert": "61df39f5354f30b98aceb665d5a1c6dbde93019f",
+          "target": "sphinx/application.py",
+          "stratum": "control",
+          "test_files": [
+            "tests/test_application.py"
+          ]
+        }
+      ]
+    },
+    {
+      "project": "urllib3",
+      "upstream": "urllib3/urllib3",
+      "snapshot": "c5347bbd39203d68d7b0e3ffb83ced3e3b4b9109",
+      "cases": [
+        {
+          "revert": "1e94feb2a671bf28721114dfea1105a2c1f91788",
+          "target": "src/urllib3/util/ssl_.py",
+          "stratum": "control",
+          "test_files": [
+            "test/test_ssl.py",
+            "test/test_no_ssl.py",
+            "test/with_dummyserver/test_no_ssl.py"
+          ]
+        },
+        {
+          "revert": "50b28369a82f0e4965ec8e5f8ca2eb7fe6093356",
+          "target": "urllib3/_collections.py",
+          "stratum": "control",
+          "test_files": [
+            "test/test_collections.py"
+          ]
+        }
+      ]
+    },
+    {
+      "project": "werkzeug",
+      "upstream": "pallets/werkzeug",
+      "snapshot": "5f11cd39b40ac03296ab7db446bfb0a737d77590",
+      "cases": [
+        {
+          "revert": "6df9e5bdb9d216fcf2989ce051cd11b763cef4a0",
+          "target": "werkzeug/formparser.py",
+          "stratum": "intervening",
+          "test_files": [
+            "tests/test_formparser.py"
+          ]
+        },
+        {
+          "revert": "56d1127ce85be10c866fbb47a5c5c267a58a543a",
+          "target": "werkzeug/_reloader.py",
+          "stratum": "control",
+          "test_files": [
+            "tests/contrib/test_atom.py",
+            "tests/contrib/test_cache.py",
+            "tests/contrib/test_fixers.py"
+          ]
+        },
+        {
+          "revert": "87eb4a2b3b00f2f4ab57902188c5fc8a401b92d7",
+          "target": "werkzeug/datastructures.py",
+          "stratum": "control",
+          "test_files": []
+        }
+      ]
+    }
+  ]
+}

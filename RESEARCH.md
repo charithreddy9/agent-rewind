@@ -396,3 +396,62 @@ and writes per-test outcomes, selected nodes, and scores as JSON.
 ```text
 python -B coverage_replay.py ../rewind-sources/black
 ```
+
+### Frozen protocol for previously unevaluated reverts
+
+The [coverage cohort manifest](coverage_cohort_plan.json) freezes 13
+single-file cases from seven additional upstream histories. Four cases
+across three distinct reverts have intervening file edits. Nine controls
+have no intervening edit and will be reported separately. Projects with
+no eligible cases remain listed. The manifest was generated from Git
+history and test filenames. No proposed rewind or test was run to
+select these cases.
+
+The [manifest generator](coverage_cohort_plan.py) uses the pinned snapshots
+and the same first-parent, 12-marker eligibility rules as the external
+textual replay. It keeps Python package source files and excludes test
+directories. Within each revert it keeps every source file with an
+intervening edit, or the lexicographically first source file if none have
+one. Tests come from the pre-revert tree. Up to three test modules are
+chosen by exact stem match, shared stem tokens, and path order. With no
+stem match the fallback is path order. Known fixture directory names are
+excluded. This filename screen can miss relevant tests.
+
+The following rules govern execution and scoring:
+
+1. For each manifest entry, build one candidate with the existing
+   three-way preview. Replace only the manifest target in a fresh
+   pre-revert tree. Record conflicts, unchanged candidates, setup failures,
+   missing tests, and timeouts separately. Keep them in the cohort
+   denominator. Do not substitute a new target or test module.
+2. Collect tests in the frozen modules. Keep up to 35 nodes ordered by
+   test file path, source line, then node ID. Do not expand the pool after
+   seeing an outcome. Keep only nodes that pass setup, call, and teardown on
+   the baseline for ranking. Use a 120-second timeout per phase. Record
+   package pins and any setup accommodations, which must be identical for
+   baseline and candidate.
+3. Freeze all choices before candidate execution. Compare the first eligible
+   node ID, uniform random, changed-line token overlap, and baseline
+   changed-line coverage. Use one candidate test per method and node ID
+   order to break ties. Use the same main-thread call-phase tracing as in
+   the Black pilot. The lexical score uses the collected test's source
+   body, with score zero if unavailable.
+4. Run the full bounded candidate pool separately to score the choices.
+   Count baseline-pass to candidate-call-fail transitions as detection of
+   differences from pre-revert expectations. Report candidate setup and
+   teardown errors and skips separately. Uniform detection probability is
+   the failing fraction of the eligible pool. Report hits and the number of
+   evaluable cases, and report whether any eligible check failed per case.
+   Do not infer that a passing pool proves preservation of behavior.
+5. Measure baseline profiling time, lexical and coverage ranking time,
+   and selected-test runtime separately. Report per-case values. Show results
+   by stratum and identify shared reverts. With only three intervening-edit
+   reverts this cohort is exploratory and cannot support a general estimate
+   of selection accuracy.
+
+To regenerate the manifest, clone the seven upstream repositories listed in
+it into one directory and run:
+
+```text
+python -B coverage_cohort_plan.py ../rewind-coverage-sources
+```
