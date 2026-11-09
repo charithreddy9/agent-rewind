@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 
+from check_gate import check_rewind
 from validation import Rules, check_json, load_rules
 
 
@@ -114,6 +115,18 @@ def read_git_versions(path: Path, before_ref: str, after_ref: str, current: str)
     return versions[0], versions[1]
 
 
+def format_gate(report: dict) -> str:
+    lines = [f"Test gate: {report['status']}"]
+    for variant in ("baseline", "candidate"):
+        if variant in report:
+            run = report[variant]
+            lines.append(f"{variant}: exit {run['exit_code']}")
+            lines.append(run.get("error") or run["output"])
+    if "error" in report:
+        lines.append(report["error"])
+    return "\n".join(lines)
+
+
 def render_html(report: dict) -> str:
     labels = {"clean": "Clean rewind", "unchanged": "Unchanged",
               "conflict": "Needs review", "skipped": "Skipped",
@@ -139,6 +152,9 @@ def render_html(report: dict) -> str:
 
     before = escape(report["before_commit"])
     after = escape(report["after_commit"])
+    gate = ""
+    if "test_gate" in report:
+        gate = f'<section><h2>Test gate</h2><pre>{escape(format_gate(report["test_gate"]))}</pre></section>'
     entries = "".join(files) or "<p>No files changed between these commits.</p>"
     return f"""<!doctype html>
 <html lang="en">
@@ -173,13 +189,15 @@ def render_html(report: dict) -> str:
     <p class="refs">Before <code>{before}</code><br>After <code>{after}</code></p>
   </header>
   <section class="cards" aria-label="Summary">{counts}</section>
+  {gate}
   <section aria-label="File previews"><h2>Files</h2>{entries}</section>
 </main>
 </html>"""
 
 
 def preview_repository(directory: Path, before_ref: str, after_ref: str,
-                       output_format: str = "text", rules: Rules | None = None) -> int:
+                       output_format: str = "text", rules: Rules | None = None,
+                       check_command: list[str] | None = None) -> int:
     root = Path(git(directory, "rev-parse", "--show-toplevel").decode("utf-8").rstrip("\r\n")).resolve()
     before = resolve_commit(root, before_ref)
     after = resolve_commit(root, after_ref)
@@ -190,6 +208,7 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str,
         counts["validation_failed"] = 0
     checked = 0
     records = []
+    candidates = {}
     structured = output_format != "text"
     for header, name in zip(fields[0:-1:2], fields[1:-1:2]):
         old_mode, new_mode, old_blob, new_blob, status = header.decode("ascii").split()
@@ -235,6 +254,8 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str,
         else:
             outcome = "clean"
         counts[outcome] += 1
+        if check_command and outcome == "clean":
+            candidates[filename] = (current, preview.text)
         if structured:
             record = dict(path=filename, status=outcome)
             if outcome == "conflict":
@@ -251,11 +272,25 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str,
                     print(f"- {issue}")
             print_preview(current, preview, repr(filename))
 
+    review_required = bool(counts["conflict"] or counts["skipped"] or counts.get("validation_failed"))
+    gate = None
+    if check_command:
+        if review_required:
+            gate = {"status": "skipped_incomplete", "command": check_command}
+        elif not candidates:
+            gate = {"status": "skipped_no_changes", "command": check_command}
+        else:
+            gate = check_rewind(root, git(root, "ls-files", "-z", "--cached"),
+                                candidates, check_command)
+            review_required = gate["status"] != "passed"
+
     if structured:
         report = dict(schema_version=1, before_commit=before, after_commit=after,
                       summary=counts, files=records)
         if rules is not None:
             report["validation"] = {"configured_paths": len(rules), "checked_files": checked}
+        if gate is not None:
+            report["test_gate"] = gate
         if output_format == "html":
             print(render_html(report))
         else:
@@ -265,7 +300,9 @@ def preview_repository(directory: Path, before_ref: str, after_ref: str,
               f"{counts['conflict']} conflicts, {counts['skipped']} skipped.")
         if rules is not None:
             print(f"Validation: {checked} files checked, {counts['validation_failed']} failed.")
-    return int(bool(counts["conflict"] or counts["skipped"] or counts.get("validation_failed")))
+        if gate is not None:
+            print("\n" + format_gate(gate))
+    return int(review_required)
 
 
 def main() -> int:
@@ -278,6 +315,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, help="Save a clean result to a new file")
     parser.add_argument("--all", action="store_true", help="Preview all supported changes between Git commits")
     parser.add_argument("--rules", type=Path, help="JSON file with batch validation rules")
+    parser.add_argument("--check", nargs=argparse.REMAINDER, metavar="COMMAND",
+                        help="Run a trusted test command in temporary copies. Put this option last.")
     formats = parser.add_mutually_exclusive_group()
     formats.add_argument("--json", dest="format", action="store_const", const="json",
                          help="Print the batch preview as JSON")
@@ -289,6 +328,8 @@ def main() -> int:
         parser.error(f"--{args.format} requires --all")
     if args.rules is not None and not args.all:
         parser.error("--rules requires --all")
+    if args.check is not None and (not args.all or not args.check):
+        parser.error("--check requires --all and a command")
     file_mode = args.before is not None or args.after is not None
     git_mode = args.before_ref is not None or args.after_ref is not None
     if args.all:
@@ -298,7 +339,7 @@ def main() -> int:
             parser.error("--all requires --before-ref and --after-ref")
         try:
             rules = load_rules(args.rules) if args.rules is not None else None
-            return preview_repository(Path.cwd(), args.before_ref, args.after_ref, args.format, rules)
+            return preview_repository(Path.cwd(), args.before_ref, args.after_ref, args.format, rules, args.check)
         except (OSError, ValueError, RuntimeError) as exc:
             parser.error(str(exc))
     if not (file_mode or git_mode or args.current is not None or args.output is not None):

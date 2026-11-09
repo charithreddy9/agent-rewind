@@ -102,6 +102,32 @@ python rewind.py --before-ref HEAD~1 --after-ref HEAD --all --rules rewind-rules
 
 Rules run on listed files with proposed text changes after the textual merge succeeds. Missing keys, invalid JSON, and violated comparisons require review. Reports show how many files were checked. A validation failure returns exit code 1 and includes the proposed diff and reasons. This option is for batch previews.
 
+## Test a proposed batch rewind
+
+Add `--check` last, followed by the executable and its arguments:
+
+```powershell
+python rewind.py --all --before-ref BEFORE --after-ref AFTER --html --check python -m unittest > rewind-report.html
+```
+
+Replace the refs and use a test command appropriate to the repository. The gate
+first runs it against a temporary copy of the current tracked files, including
+local modifications. If that passes, it runs the same command against a separate
+copy with all proposed changes. A baseline failure, candidate failure, or runner
+error returns exit status 1. Batches with conflicts, skipped files, or failed
+rules already require review and skip the test gate. The report keeps textual
+merge status and the batch test result separate. A passing check covers only
+what the chosen command tests.
+
+Run only trusted commands and project code. Temporary copies leave the source
+checkout untouched during normal use and provide no security sandbox. Commands
+run with your account's permissions and inherited environment. Use a command
+available on your PATH, or an absolute executable path. Each run has a 60-second
+timeout. The snapshot excludes untracked files and Git metadata, and rejects
+missing or linked tracked files and submodule directories. Keep the checkout
+stable while the snapshot is being created. Tests that depend on omitted files,
+Git, or a long-running service need a compatible setup before using this gate.
+
 ## Compare rewind strategies
 
 Run the 12-case evaluation and regression tests with:

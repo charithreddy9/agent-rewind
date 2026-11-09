@@ -87,6 +87,56 @@ class CommandTests(unittest.TestCase):
                              ["min_workers (6) must be <= max_workers (4)."])
             self.assertEqual(config.read_bytes(), original)
 
+    def test_gate_distinguishes_candidate_and_baseline_failures(self):
+        with TemporaryDirectory() as folder:
+            repo = Path(folder)
+
+            def git(*args):
+                return subprocess.check_output(
+                    ["git", "-c", "user.name=Demo", "-c", "user.email=demo@example.invalid",
+                     "-c", "commit.gpgsign=false",
+                     "-c", f"core.hooksPath={repo / '.git' / 'disabled-hooks'}", *args], cwd=repo
+                )
+
+            git("init", "-q", "--template=")
+            source = repo / "setting.py"
+            check = repo / "verify.py"
+            check.write_bytes(b"from pathlib import Path\n"
+                              b"assert Path('setting.py').read_text().startswith('ENABLED = True')\n"
+                              b"Path('test-marker').touch()\n")
+            for value in ("False", "True"):
+                source.write_bytes(f"ENABLED = {value}\n\nPORT = 8080\n".encode())
+                git("add", "-f", "--", source.name, check.name)
+                git("commit", "-qm", "Fixture snapshot")
+            # The baseline includes the uncommitted edit.
+            source.write_bytes(b"ENABLED = True\n\nPORT = 8080\n# later edit\n")
+            original = source.read_bytes()
+            command = [sys.executable, str(HERE / "rewind.py"), "--all", "--json",
+                       "--before-ref", "HEAD~1", "--after-ref", "HEAD", "--check"]
+
+            def run_check(*argv):
+                result = subprocess.run(command + list(argv), cwd=repo, capture_output=True)
+                return result.returncode, json.loads(result.stdout)
+
+            code, report = run_check(sys.executable, check.name)
+            self.assertEqual(code, 1)
+            self.assertEqual(report["files"][0]["status"], "clean")
+            gate = report["test_gate"]
+            self.assertEqual(gate["status"], "candidate_failed")
+            self.assertEqual(gate["baseline"]["exit_code"], 0)
+            self.assertIn("AssertionError", gate["candidate"]["output"])
+            self.assertEqual(source.read_bytes(), original)
+            self.assertFalse((repo / "test-marker").exists())
+
+            code, report = run_check(sys.executable, "-c", "raise SystemExit(1)")
+            self.assertEqual(code, 1)
+            self.assertEqual(report["test_gate"]["status"], "baseline_failed")
+            self.assertNotIn("candidate", report["test_gate"])
+
+            code, report = run_check(sys.executable, "-c", "pass")
+            self.assertEqual(code, 0)
+            self.assertEqual(report["test_gate"]["status"], "passed")
+
     def test_browser_demo_contains_all_three_outcomes(self):
         with TemporaryDirectory() as folder:
             result = subprocess.run([sys.executable, str(HERE / "demo.py")], cwd=folder,
